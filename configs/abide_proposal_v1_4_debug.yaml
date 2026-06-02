@@ -12,17 +12,17 @@ data:
       fc_file: X_ho.npy
 
 train:
-  seeds: [0, 1, 2, 3, 4]
-  n_splits: 5
-  epochs: 80
-  batch_size: 32
+  seeds: [0]
+  n_splits: 2
+  epochs: 2
+  batch_size: 16
   lr: 1.0e-3
   weight_decay: 1.0e-4
   use_best_val: false
 
 model:
-  hidden_dim: 128
-  embedding_dim: 128
+  hidden_dim: 64
+  embedding_dim: 64
   num_signed_layers: 2
   dropout: 0.5
   temperature: 1.0
@@ -32,4 +32,4 @@ loss:
   lambda_branch: 0.2
   lambda_reg: 0.1
   margin: 0.1
-  regularization_mode: proposal_literal
+  regularization_mode: fusion_better

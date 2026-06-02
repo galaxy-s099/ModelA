@@ -7,15 +7,34 @@ class ProposalLoss(nn.Module):
     """
     L = L_fusion + lambda_branch * sum(L_i) + lambda_reg * L_reg
 
-    L_reg follows the proposal literally:
-    sum_i max(0, L_i - L_fusion + margin)
+    Supported regularization modes:
+
+    proposal_literal:
+        sum_i max(0, L_i - L_fusion + margin)
+
+    fusion_better:
+        sum_i max(0, L_fusion - L_i + margin)
     """
 
-    def __init__(self, lambda_branch=0.2, lambda_reg=0.1, margin=0.1):
+    def __init__(
+        self,
+        lambda_branch=0.2,
+        lambda_reg=0.1,
+        margin=0.1,
+        regularization_mode="proposal_literal",
+    ):
         super().__init__()
+        supported_modes = {"proposal_literal", "fusion_better"}
+        if regularization_mode not in supported_modes:
+            raise ValueError(
+                f"Unsupported regularization_mode: {regularization_mode}. "
+                f"Expected one of {sorted(supported_modes)}"
+            )
+
         self.lambda_branch = lambda_branch
         self.lambda_reg = lambda_reg
         self.margin = margin
+        self.regularization_mode = regularization_mode
 
     def forward(self, output, labels):
         fusion_loss = F.cross_entropy(output["fusion_logits"], labels)
@@ -25,9 +44,12 @@ class ProposalLoss(nn.Module):
                 for atlas_index in range(output["branch_logits"].shape[1])
             ]
         )
-        regularization_loss = torch.relu(
-            branch_losses - fusion_loss + self.margin
-        ).sum()
+        if self.regularization_mode == "proposal_literal":
+            regularization_term = branch_losses - fusion_loss + self.margin
+        else:
+            regularization_term = fusion_loss - branch_losses + self.margin
+
+        regularization_loss = torch.relu(regularization_term).sum()
         total_loss = (
             fusion_loss
             + self.lambda_branch * branch_losses.sum()

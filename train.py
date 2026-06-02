@@ -42,6 +42,10 @@ def build_loss(config):
         lambda_branch=loss_config["lambda_branch"],
         lambda_reg=loss_config["lambda_reg"],
         margin=loss_config["margin"],
+        regularization_mode=loss_config.get(
+            "regularization_mode",
+            "proposal_literal",
+        ),
     )
 
 

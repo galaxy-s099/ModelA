@@ -32,3 +32,4 @@ loss:
   lambda_branch: 0.2
   lambda_reg: 0.1
   margin: 0.1
+  regularization_mode: proposal_literal

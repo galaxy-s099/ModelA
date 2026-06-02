@@ -51,6 +51,14 @@ L = L_fusion + lambda_branch * sum(L_i) + lambda_reg * L_reg
 L_reg = sum(max(0, L_i - L_fusion + margin))
 ```
 
+The original proposal direction remains available as `proposal_literal`.
+The `abide_proposal_v1_4.yaml` experiment tests the alternative
+`fusion_better` direction:
+
+```text
+L_reg = sum(max(0, L_fusion - L_i + margin))
+```
+
 ## Input Data
 
 The default configuration expects:
@@ -77,6 +85,12 @@ Full repeated cross validation:
 python run_abide.py --config configs/abide_proposal.yaml
 ```
 
+v1.4 regularization-direction experiment:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v1_4.yaml
+```
+
 Short pipeline check on the real dataset:
 
 ```bash
@@ -87,6 +101,7 @@ Synthetic model smoke test:
 
 ```bash
 python tests/smoke_test.py
+python tests/loss_mode_test.py
 ```
 
 Synthetic end-to-end data and training smoke test:

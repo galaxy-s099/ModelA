@@ -62,6 +62,15 @@ def main():
     loss_details["loss"].backward()
     assert torch.isfinite(loss_details["loss"])
 
+    fusion_better_criterion = ProposalLoss(
+        lambda_branch=0.2,
+        lambda_reg=0.1,
+        margin=0.1,
+        regularization_mode="fusion_better",
+    )
+    fusion_better_loss_details = fusion_better_criterion(output, labels)
+    assert torch.isfinite(fusion_better_loss_details["loss"])
+
     print("Smoke test passed.")
     print("Fusion logits:", tuple(output["fusion_logits"].shape))
     print("Atlas weights:", tuple(output["atlas_weight"].shape))
