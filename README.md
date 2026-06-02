@@ -1,0 +1,109 @@
+# SMAF Proposal Net
+
+Strict implementation of the proposed signed multi-atlas brain functional
+network framework for ABIDE ASD vs TC classification.
+
+This project is built independently in `D:\Model`. The earlier
+`D:\SMAF-Net` project remains unchanged and can be used as the baseline
+comparison.
+
+## Architecture
+
+For each atlas, the model receives a functional connectivity matrix and splits
+it into positive and negative adjacency matrices:
+
+```text
+A+ = max(FC, 0)
+A- = max(-FC, 0)
+```
+
+Each atlas branch follows the proposal's two-state signed propagation:
+
+```text
+H_pos^(1) = activation(A+ X W_pos)
+H_neg^(1) = activation(A- X W_neg)
+
+H_pos^(l) = activation(concat(A+ H_pos^(l-1) W_pp,
+                              A- H_neg^(l-1) W_nn))
+
+H_neg^(l) = activation(concat(A+ H_neg^(l-1) W_pn,
+                              A- H_pos^(l-1) W_np))
+```
+
+The final positive and negative node states are concatenated and mean-pooled
+into an atlas-level embedding. Atlas-level embeddings then attend to the other
+atlases only. The attention diagonal is masked so an atlas cannot attend to
+itself.
+
+Each enhanced atlas embedding has an independent classifier. Its energy score
+defines a decision-fusion weight:
+
+```text
+E_i = -T * logsumexp(logits_i / T)
+w_i = softmax(-E_i)
+fusion_logits = sum(w_i * logits_i)
+```
+
+The training objective follows the proposal:
+
+```text
+L = L_fusion + lambda_branch * sum(L_i) + lambda_reg * L_reg
+L_reg = sum(max(0, L_i - L_fusion + margin))
+```
+
+## Input Data
+
+The default configuration expects:
+
+```text
+labels.npy
+X_aal.npy
+X_cc200.npy
+X_ho.npy
+```
+
+Each `X_<atlas>.npy` file has shape `samples x nodes x nodes`.
+
+The default node feature is each subject's FC row. To use separately extracted
+ROI/BOLD features, add `node_feature_file` and `feature_dim` to the matching
+atlas in the YAML configuration. The feature file must have shape
+`samples x nodes x feature_dim`.
+
+## Run
+
+Full repeated cross validation:
+
+```bash
+python run_abide.py --config configs/abide_proposal.yaml
+```
+
+Short pipeline check on the real dataset:
+
+```bash
+python run_abide.py --config configs/abide_proposal_debug.yaml
+```
+
+Synthetic model smoke test:
+
+```bash
+python tests/smoke_test.py
+```
+
+Synthetic end-to-end data and training smoke test:
+
+```bash
+python tests/pipeline_smoke_test.py
+```
+
+## Discussion Items
+
+The implementation keeps the proposal formula literal where possible. Confirm
+these experimental choices before the final ABIDE run:
+
+1. Whether negative adjacency matrices should receive explicit self-loops.
+2. Whether FC rows are acceptable node features or separate ROI/BOLD features
+   should be exported.
+3. Whether `L_reg = sum(max(0, L_i - L_fusion + margin))` has the intended
+   optimization direction.
+4. Whether site-aware splitting should be added when phenotypic metadata is
+   available.

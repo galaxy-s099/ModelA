@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+*.csv
+.pytest_cache/
+abide_baseline_docx_render/
+pycache_smaf/
