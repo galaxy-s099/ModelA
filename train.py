@@ -33,6 +33,7 @@ def build_model(config):
             "add_negative_self_loops",
             True,
         ),
+        fusion_mode=model_config.get("fusion_mode", "energy_decision"),
     )
 
 
@@ -79,16 +80,19 @@ def evaluate_model(model, dataloader, device, threshold=0.5):
             probabilities.extend(batch_probabilities.cpu().numpy())
             predictions.extend((batch_probabilities >= threshold).long().cpu().numpy())
             labels.extend(batch["label"].cpu().numpy())
-            atlas_weights.append(output["atlas_weight"].cpu().numpy())
+            atlas_weight = output.get("atlas_weight")
+            if atlas_weight is not None:
+                atlas_weights.append(atlas_weight.cpu().numpy())
 
     labels = np.asarray(labels)
     probabilities = np.asarray(probabilities)
     predictions = np.asarray(predictions)
     metrics = compute_metrics(labels, probabilities, predictions)
 
-    mean_atlas_weight = np.concatenate(atlas_weights, axis=0).mean(axis=0)
-    for atlas_name, weight in zip(model.atlas_names, mean_atlas_weight):
-        metrics[f"Weight_{atlas_name}"] = float(weight)
+    if atlas_weights:
+        mean_atlas_weight = np.concatenate(atlas_weights, axis=0).mean(axis=0)
+        for atlas_name, weight in zip(model.atlas_names, mean_atlas_weight):
+            metrics[f"Weight_{atlas_name}"] = float(weight)
 
     return metrics, probabilities, labels
 

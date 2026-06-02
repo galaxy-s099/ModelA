@@ -44,6 +44,9 @@ w_i = softmax(-E_i)
 fusion_logits = sum(w_i * logits_i)
 ```
 
+For the v1.2 ablation, the energy path is removed. The three attention-enhanced
+atlas embeddings are concatenated and classified by one fusion classifier.
+
 The training objective follows the proposal:
 
 ```text
@@ -97,6 +100,12 @@ v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 python run_abide.py --config configs/abide_proposal_v1_3.yaml
 ```
 
+v1.2 feature-level fusion ablation (no energy decision fusion):
+
+```bash
+python run_abide.py --config configs/abide_proposal_v1_2.yaml
+```
+
 Short pipeline check on the real dataset:
 
 ```bash
@@ -108,6 +117,7 @@ Synthetic model smoke test:
 ```bash
 python tests/smoke_test.py
 python tests/loss_mode_test.py
+python tests/feature_concat_test.py
 ```
 
 Synthetic end-to-end data and training smoke test:

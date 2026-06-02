@@ -38,10 +38,25 @@ class ProposalLoss(nn.Module):
 
     def forward(self, output, labels):
         fusion_loss = F.cross_entropy(output["fusion_logits"], labels)
+        branch_logits = output.get("branch_logits")
+        if branch_logits is None:
+            if self.lambda_branch != 0 or self.lambda_reg != 0:
+                raise ValueError(
+                    "branch_logits are required when lambda_branch or lambda_reg "
+                    "is non-zero"
+                )
+            zero = fusion_loss.detach().new_zeros(())
+            return {
+                "loss": fusion_loss,
+                "fusion_loss": fusion_loss.detach(),
+                "branch_loss": zero,
+                "regularization_loss": zero,
+            }
+
         branch_losses = torch.stack(
             [
-                F.cross_entropy(output["branch_logits"][:, atlas_index], labels)
-                for atlas_index in range(output["branch_logits"].shape[1])
+                F.cross_entropy(branch_logits[:, atlas_index], labels)
+                for atlas_index in range(branch_logits.shape[1])
             ]
         )
         if self.regularization_mode == "proposal_literal":
