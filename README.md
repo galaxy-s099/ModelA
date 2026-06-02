@@ -91,6 +91,12 @@ v1.4 regularization-direction experiment:
 python run_abide.py --config configs/abide_proposal_v1_4.yaml
 ```
 
+v1.3 confidence-regularization ablation (`lambda_reg = 0`):
+
+```bash
+python run_abide.py --config configs/abide_proposal_v1_3.yaml
+```
+
 Short pipeline check on the real dataset:
 
 ```bash
