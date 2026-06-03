@@ -12,8 +12,8 @@ class SMAFProposalNet(nn.Module):
     Signed multi-atlas network with controlled fusion ablations:
 
     1. Two-state signed graph propagation for each atlas.
-    2. Cross-atlas feature enhancement at graph-embedding level.
-    3. Energy-aware decision fusion or feature-concatenation classification.
+    2. Optional cross-atlas feature enhancement at graph-embedding level.
+    3. Energy-aware, attention-concat, or raw-concat classification.
     """
 
     def __init__(
@@ -30,7 +30,11 @@ class SMAFProposalNet(nn.Module):
         super().__init__()
         if temperature <= 0:
             raise ValueError("temperature must be greater than zero")
-        supported_fusion_modes = {"energy_decision", "feature_concat"}
+        supported_fusion_modes = {
+            "energy_decision",
+            "feature_concat",
+            "raw_concat",
+        }
         if fusion_mode not in supported_fusion_modes:
             raise ValueError(
                 f"Unsupported fusion_mode: {fusion_mode}. "
@@ -60,11 +64,12 @@ class SMAFProposalNet(nn.Module):
             if self.fusion_mode == "energy_decision":
                 self.classifiers[atlas_name] = nn.Linear(embedding_dim, 2)
 
-        self.cross_atlas_attention = CrossAtlasAttention(
-            embedding_dim=embedding_dim,
-            dropout=dropout,
-        )
-        if self.fusion_mode == "feature_concat":
+        if self.fusion_mode in {"energy_decision", "feature_concat"}:
+            self.cross_atlas_attention = CrossAtlasAttention(
+                embedding_dim=embedding_dim,
+                dropout=dropout,
+            )
+        if self.fusion_mode in {"feature_concat", "raw_concat"}:
             self.fusion_classifier = nn.Sequential(
                 nn.Linear(embedding_dim * len(self.atlas_names), hidden_dim),
                 nn.ReLU(),
@@ -93,14 +98,21 @@ class SMAFProposalNet(nn.Module):
 
         # B x M x D, where M is the number of atlases.
         stacked_embeddings = torch.stack(graph_embeddings, dim=1)
+
+        output = {"branch_details": branch_details}
+        if self.fusion_mode == "raw_concat":
+            flattened_embeddings = stacked_embeddings.reshape(
+                stacked_embeddings.shape[0],
+                -1,
+            )
+            output["fusion_logits"] = self.fusion_classifier(flattened_embeddings)
+            return output
+
         enhanced_embeddings, attention_weight = self.cross_atlas_attention(
             stacked_embeddings
         )
 
-        output = {
-            "attention_weight": attention_weight,
-            "branch_details": branch_details,
-        }
+        output["attention_weight"] = attention_weight
         if self.fusion_mode == "feature_concat":
             flattened_embeddings = enhanced_embeddings.reshape(
                 enhanced_embeddings.shape[0],

@@ -47,6 +47,9 @@ fusion_logits = sum(w_i * logits_i)
 For the v1.2 ablation, the energy path is removed. The three attention-enhanced
 atlas embeddings are concatenated and classified by one fusion classifier.
 
+For the v1.1 ablation, cross-atlas attention is also removed. The raw atlas
+embeddings from the Signed GCN branches are concatenated and classified.
+
 The training objective follows the proposal:
 
 ```text
@@ -106,6 +109,12 @@ v1.2 feature-level fusion ablation (no energy decision fusion):
 python run_abide.py --config configs/abide_proposal_v1_2.yaml
 ```
 
+v1.1 raw atlas embedding concat ablation:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v1_1.yaml
+```
+
 Short pipeline check on the real dataset:
 
 ```bash
@@ -118,6 +127,7 @@ Synthetic model smoke test:
 python tests/smoke_test.py
 python tests/loss_mode_test.py
 python tests/feature_concat_test.py
+python tests/raw_concat_test.py
 ```
 
 Synthetic end-to-end data and training smoke test:
