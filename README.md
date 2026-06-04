@@ -103,6 +103,13 @@ v1.5 deeper signed propagation experiment (`num_signed_layers = 3`):
 python run_abide.py --config configs/abide_proposal_v1_5.yaml
 ```
 
+v1.6 residual deeper signed propagation experiment
+(`num_signed_layers = 3`, `use_signed_residual = true`):
+
+```bash
+python run_abide.py --config configs/abide_proposal_v1_6.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

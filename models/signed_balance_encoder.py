@@ -64,17 +64,21 @@ class DeepSignedLayer(nn.Module):
     H_neg <- concat(A+ H_neg W_pn, A- H_pos W_np)
     """
 
-    def __init__(self, hidden_dim, dropout=0.5):
+    def __init__(self, hidden_dim, dropout=0.5, use_residual=False):
         super().__init__()
         if hidden_dim % 2 != 0:
             raise ValueError("hidden_dim must be even for signed path concatenation")
 
         path_dim = hidden_dim // 2
+        self.use_residual = use_residual
         self.weight_pp = nn.Linear(hidden_dim, path_dim)
         self.weight_nn = nn.Linear(hidden_dim, path_dim)
         self.weight_pn = nn.Linear(hidden_dim, path_dim)
         self.weight_np = nn.Linear(hidden_dim, path_dim)
         self.dropout = nn.Dropout(dropout)
+        if self.use_residual:
+            self.pos_norm = nn.LayerNorm(hidden_dim)
+            self.neg_norm = nn.LayerNorm(hidden_dim)
 
     def forward(self, h_pos, h_neg, adjacency_pos, adjacency_neg):
         pos_from_pos = self.weight_pp(torch.bmm(adjacency_pos, h_pos))
@@ -85,7 +89,14 @@ class DeepSignedLayer(nn.Module):
         next_pos = torch.cat([pos_from_pos, pos_from_neg], dim=-1)
         next_neg = torch.cat([neg_from_neg, neg_from_pos], dim=-1)
 
-        return self.dropout(F.relu(next_pos)), self.dropout(F.relu(next_neg))
+        next_pos = self.dropout(F.relu(next_pos))
+        next_neg = self.dropout(F.relu(next_neg))
+
+        if self.use_residual:
+            next_pos = self.pos_norm(h_pos + next_pos)
+            next_neg = self.neg_norm(h_neg + next_neg)
+
+        return next_pos, next_neg
 
 
 class SignedBalanceEncoder(nn.Module):
@@ -100,6 +111,7 @@ class SignedBalanceEncoder(nn.Module):
         num_layers=2,
         dropout=0.5,
         add_negative_self_loops=True,
+        use_residual=False,
     ):
         super().__init__()
         if num_layers < 1:
@@ -108,6 +120,7 @@ class SignedBalanceEncoder(nn.Module):
         self.num_nodes = num_nodes
         self.feature_dim = feature_dim or num_nodes
         self.add_negative_self_loops = add_negative_self_loops
+        self.use_residual = use_residual
 
         self.initial_layer = InitialSignedLayer(
             input_dim=self.feature_dim,
@@ -116,7 +129,11 @@ class SignedBalanceEncoder(nn.Module):
         )
         self.deep_layers = nn.ModuleList(
             [
-                DeepSignedLayer(hidden_dim=hidden_dim, dropout=dropout)
+                DeepSignedLayer(
+                    hidden_dim=hidden_dim,
+                    dropout=dropout,
+                    use_residual=use_residual,
+                )
                 for _ in range(num_layers - 1)
             ]
         )

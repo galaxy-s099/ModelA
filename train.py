@@ -33,6 +33,7 @@ def build_model(config):
             "add_negative_self_loops",
             True,
         ),
+        use_signed_residual=model_config.get("use_signed_residual", False),
         fusion_mode=model_config.get("fusion_mode", "energy_decision"),
     )
 
