@@ -117,6 +117,13 @@ on the rebuilt FC dataset:
 python run_abide.py --config configs/abide_proposal_v1_8.yaml
 ```
 
+v1.9 deeper residual signed propagation with learnable signed edge gates
+on the rebuilt FC dataset:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v1_9.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
