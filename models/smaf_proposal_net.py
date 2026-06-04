@@ -26,6 +26,8 @@ class SMAFProposalNet(nn.Module):
         temperature=1.0,
         add_negative_self_loops=True,
         use_signed_residual=False,
+        use_signed_edge_gate=False,
+        edge_gate_scale=0.5,
         fusion_mode="energy_decision",
     ):
         super().__init__()
@@ -62,6 +64,8 @@ class SMAFProposalNet(nn.Module):
                 dropout=dropout,
                 add_negative_self_loops=add_negative_self_loops,
                 use_residual=use_signed_residual,
+                use_edge_gate=use_signed_edge_gate,
+                edge_gate_scale=edge_gate_scale,
             )
             if self.fusion_mode == "energy_decision":
                 self.classifiers[atlas_name] = nn.Linear(embedding_dim, 2)

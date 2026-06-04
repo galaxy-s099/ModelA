@@ -14,7 +14,25 @@ def normalize_adjacency(adjacency, eps=1e-6):
     )
 
 
-def build_signed_adjacencies(fc, add_negative_self_loops=True):
+def apply_edge_gate(adjacency, edge_gate=None, edge_gate_scale=0.5):
+    if edge_gate is None:
+        return adjacency
+
+    if not 0.0 <= edge_gate_scale < 1.0:
+        raise ValueError("edge_gate_scale must be in [0, 1)")
+
+    symmetric_gate = 0.5 * (edge_gate + edge_gate.transpose(-1, -2))
+    gate = 1.0 + edge_gate_scale * torch.tanh(symmetric_gate)
+    return adjacency * gate.unsqueeze(0)
+
+
+def build_signed_adjacencies(
+    fc,
+    add_negative_self_loops=True,
+    positive_edge_gate=None,
+    negative_edge_gate=None,
+    edge_gate_scale=0.5,
+):
     """
     Split a functional connectivity matrix into normalized positive and
     negative adjacency matrices.
@@ -30,8 +48,21 @@ def build_signed_adjacencies(fc, add_negative_self_loops=True):
     # The diagonal of an FC matrix is not an inter-ROI edge. Remove it before
     # inserting the explicit graph self-loops required by the model.
     off_diagonal = fc * (1.0 - identity)
-    adjacency_pos = torch.clamp(off_diagonal, min=0.0) + identity
+    adjacency_pos = torch.clamp(off_diagonal, min=0.0)
     adjacency_neg = torch.clamp(-off_diagonal, min=0.0)
+
+    adjacency_pos = apply_edge_gate(
+        adjacency_pos,
+        edge_gate=positive_edge_gate,
+        edge_gate_scale=edge_gate_scale,
+    )
+    adjacency_neg = apply_edge_gate(
+        adjacency_neg,
+        edge_gate=negative_edge_gate,
+        edge_gate_scale=edge_gate_scale,
+    )
+
+    adjacency_pos = adjacency_pos + identity
 
     if add_negative_self_loops:
         adjacency_neg = adjacency_neg + identity
@@ -112,6 +143,8 @@ class SignedBalanceEncoder(nn.Module):
         dropout=0.5,
         add_negative_self_loops=True,
         use_residual=False,
+        use_edge_gate=False,
+        edge_gate_scale=0.5,
     ):
         super().__init__()
         if num_layers < 1:
@@ -121,6 +154,15 @@ class SignedBalanceEncoder(nn.Module):
         self.feature_dim = feature_dim or num_nodes
         self.add_negative_self_loops = add_negative_self_loops
         self.use_residual = use_residual
+        self.use_edge_gate = use_edge_gate
+        self.edge_gate_scale = edge_gate_scale
+
+        if self.use_edge_gate:
+            self.positive_edge_gate = nn.Parameter(torch.zeros(num_nodes, num_nodes))
+            self.negative_edge_gate = nn.Parameter(torch.zeros(num_nodes, num_nodes))
+        else:
+            self.register_parameter("positive_edge_gate", None)
+            self.register_parameter("negative_edge_gate", None)
 
         self.initial_layer = InitialSignedLayer(
             input_dim=self.feature_dim,
@@ -160,6 +202,9 @@ class SignedBalanceEncoder(nn.Module):
         adjacency_pos, adjacency_neg = build_signed_adjacencies(
             fc,
             add_negative_self_loops=self.add_negative_self_loops,
+            positive_edge_gate=self.positive_edge_gate,
+            negative_edge_gate=self.negative_edge_gate,
+            edge_gate_scale=self.edge_gate_scale,
         )
         h_pos, h_neg = self.initial_layer(features, adjacency_pos, adjacency_neg)
 

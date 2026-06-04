@@ -34,6 +34,8 @@ def build_model(config):
             True,
         ),
         use_signed_residual=model_config.get("use_signed_residual", False),
+        use_signed_edge_gate=model_config.get("use_signed_edge_gate", False),
+        edge_gate_scale=model_config.get("edge_gate_scale", 0.5),
         fusion_mode=model_config.get("fusion_mode", "energy_decision"),
     )
 

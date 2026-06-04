@@ -110,6 +110,13 @@ v1.6 residual deeper signed propagation experiment
 python run_abide.py --config configs/abide_proposal_v1_6.yaml
 ```
 
+v1.8 residual signed propagation with learnable signed edge gates
+on the rebuilt FC dataset:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v1_8.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
