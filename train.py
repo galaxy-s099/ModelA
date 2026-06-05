@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 
 from data.abide_dataset import ABIDEMultiAtlasDataset, load_labels
 from models.losses import ProposalLoss
+from models.smaf_edge_proposal_net import SMAFEdgeProposalNet
 from models.smaf_proposal_net import SMAFProposalNet
 from utils.metrics import compute_metrics, summarize_results
 from utils.seed import set_seed
@@ -22,6 +23,15 @@ def move_batch_to_device(batch, device):
 
 def build_model(config):
     model_config = config["model"]
+    if model_config.get("model_name") == "smaf_edge_proposal_v2":
+        return SMAFEdgeProposalNet(
+            atlas_specs=config["data"]["atlases"],
+            hidden_dim=model_config["hidden_dim"],
+            embedding_dim=model_config["embedding_dim"],
+            dropout=model_config["dropout"],
+            temperature=model_config["temperature"],
+        )
+
     return SMAFProposalNet(
         atlas_specs=config["data"]["atlases"],
         hidden_dim=model_config["hidden_dim"],
