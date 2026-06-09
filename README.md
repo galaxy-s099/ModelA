@@ -138,6 +138,13 @@ attention and v5-style gated feature fusion on the rebuilt FC dataset:
 python run_abide.py --config configs/abide_proposal_v2_1.yaml
 ```
 
+v2.2 SMAF-Net v5 signed edge branch encoder with energy fusion and no
+cross-atlas attention on the rebuilt FC dataset:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v2_2.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
