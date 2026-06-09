@@ -157,6 +157,12 @@ v2.4 v2.3 with validation checkpoint and threshold calibration:
 python run_abide.py --config configs/abide_proposal_v2_4.yaml
 ```
 
+v2.5 v2.2 structure with reduced confidence regularization:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v2_5.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
