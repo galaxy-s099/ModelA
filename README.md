@@ -145,6 +145,12 @@ cross-atlas attention on the rebuilt FC dataset:
 python run_abide.py --config configs/abide_proposal_v2_2.yaml
 ```
 
+v2.3 v2.2 loss ablation without confidence regularization:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v2_3.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
