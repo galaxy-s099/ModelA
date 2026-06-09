@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 
 from data.abide_dataset import ABIDEMultiAtlasDataset, load_labels
 from models.losses import ProposalLoss
+from models.smaf_edge_gated_proposal_net import SMAFEdgeGatedProposalNet
 from models.smaf_edge_proposal_net import SMAFEdgeProposalNet
 from models.smaf_proposal_net import SMAFProposalNet
 from utils.metrics import compute_metrics, summarize_results
@@ -30,6 +31,14 @@ def build_model(config):
             embedding_dim=model_config["embedding_dim"],
             dropout=model_config["dropout"],
             temperature=model_config["temperature"],
+        )
+
+    if model_config.get("model_name") == "smaf_edge_gated_proposal_v2_1":
+        return SMAFEdgeGatedProposalNet(
+            atlas_specs=config["data"]["atlases"],
+            hidden_dim=model_config["hidden_dim"],
+            embedding_dim=model_config["embedding_dim"],
+            dropout=model_config["dropout"],
         )
 
     return SMAFProposalNet(

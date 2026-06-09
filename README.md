@@ -131,6 +131,13 @@ attention, energy fusion, and loss on the rebuilt FC dataset:
 python run_abide.py --config configs/abide_proposal_v2_0.yaml
 ```
 
+v2.1 SMAF-Net v5 signed edge branch encoder with proposal cross-atlas
+attention and v5-style gated feature fusion on the rebuilt FC dataset:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v2_1.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
