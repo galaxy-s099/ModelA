@@ -169,6 +169,12 @@ v2.6 v2.2 structure with intermediate confidence regularization:
 python run_abide.py --config configs/abide_proposal_v2_6.yaml
 ```
 
+v2.7 v2.2 structure with stronger confidence regularization:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v2_7.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
