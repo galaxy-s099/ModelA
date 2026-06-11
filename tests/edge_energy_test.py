@@ -54,6 +54,39 @@ def main():
     loss_details["loss"].backward()
     assert torch.isfinite(loss_details["loss"])
 
+    prior_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_atlas_prior=True,
+    )
+    prior_model.load_state_dict(model.state_dict(), strict=False)
+    model.eval()
+    prior_model.eval()
+    with torch.no_grad():
+        baseline_output = model(batch)
+        prior_output = prior_model(batch)
+    assert torch.allclose(
+        baseline_output["atlas_weight"],
+        prior_output["atlas_weight"],
+        atol=1e-6,
+    )
+    assert torch.allclose(
+        baseline_output["fusion_logits"],
+        prior_output["fusion_logits"],
+        atol=1e-6,
+    )
+
+    prior_model.train()
+    prior_output = prior_model(batch)
+    prior_loss_details = criterion(prior_output, labels)
+    prior_loss_details["loss"].backward()
+    assert prior_model.atlas_prior.grad is not None
+    assert torch.isfinite(prior_model.atlas_prior.grad).all()
+    assert prior_model.atlas_prior.grad.abs().sum() > 0
+
     print("Edge energy test passed.")
     print("Fusion logits:", tuple(output["fusion_logits"].shape))
     print("Atlas weights:", tuple(output["atlas_weight"].shape))

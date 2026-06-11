@@ -181,6 +181,12 @@ v2.8 v2.2 structure with weaker branch supervision:
 python run_abide.py --config configs/abide_proposal_v2_8.yaml
 ```
 
+v2.9 v2.2 structure with learnable atlas prior in energy fusion:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v2_9.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

@@ -32,6 +32,7 @@ def build_model(config):
             embedding_dim=model_config["embedding_dim"],
             dropout=model_config["dropout"],
             temperature=model_config["temperature"],
+            use_atlas_prior=model_config.get("use_atlas_prior", False),
         )
 
     if model_config.get("model_name") == "smaf_edge_gated_proposal_v2_1":

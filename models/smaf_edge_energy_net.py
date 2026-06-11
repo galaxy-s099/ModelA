@@ -25,6 +25,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         embedding_dim=128,
         dropout=0.5,
         temperature=1.0,
+        use_atlas_prior=False,
     ):
         super().__init__()
         if temperature <= 0:
@@ -32,7 +33,9 @@ class SMAFEdgeEnergyNet(nn.Module):
 
         self.atlas_specs = OrderedDict(atlas_specs)
         self.atlas_names = list(self.atlas_specs.keys())
+        self.num_atlases = len(self.atlas_names)
         self.temperature = temperature
+        self.use_atlas_prior = use_atlas_prior
 
         self.encoders = nn.ModuleDict()
         self.classifiers = nn.ModuleDict()
@@ -46,6 +49,11 @@ class SMAFEdgeEnergyNet(nn.Module):
                 dropout=dropout,
             )
             self.classifiers[atlas_name] = nn.Linear(embedding_dim, 2)
+
+        if self.use_atlas_prior:
+            self.atlas_prior = nn.Parameter(torch.zeros(self.num_atlases))
+        else:
+            self.register_parameter("atlas_prior", None)
 
     def compute_energy(self, logits):
         return -self.temperature * torch.logsumexp(
@@ -63,7 +71,11 @@ class SMAFEdgeEnergyNet(nn.Module):
 
         stacked_logits = torch.stack(branch_logits, dim=1)
         energy = self.compute_energy(stacked_logits)
-        atlas_weight = torch.softmax(-energy, dim=1)
+        energy_score = -energy
+        if self.atlas_prior is not None:
+            energy_score = energy_score + self.atlas_prior.unsqueeze(0)
+
+        atlas_weight = torch.softmax(energy_score, dim=1)
         fusion_logits = torch.sum(
             atlas_weight.unsqueeze(-1) * stacked_logits,
             dim=1,
@@ -74,5 +86,6 @@ class SMAFEdgeEnergyNet(nn.Module):
             "branch_logits": stacked_logits,
             "energy": energy,
             "atlas_weight": atlas_weight,
+            "atlas_prior": self.atlas_prior,
             "branch_details": branch_details,
         }
