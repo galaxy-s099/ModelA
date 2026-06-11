@@ -52,6 +52,14 @@ def build_model(config):
             use_atlas_prior=model_config.get("use_atlas_prior", False),
             use_sample_gate=model_config.get("use_sample_gate", False),
             sample_gate_scale=model_config.get("sample_gate_scale", 1.0),
+            use_residual_classifier=model_config.get(
+                "use_residual_classifier",
+                False,
+            ),
+            residual_classifier_scale=model_config.get(
+                "residual_classifier_scale",
+                0.5,
+            ),
         )
 
     return SMAFProposalNet(

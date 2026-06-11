@@ -199,6 +199,12 @@ v3.0 v2.10 stage baseline with reduced sample gate scale:
 python run_abide.py --config configs/abide_proposal_v3_0.yaml
 ```
 
+v3.1 v2.10 with zero-initialized residual classifier head:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v3_1.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

@@ -28,12 +28,16 @@ class SMAFEdgeEnergyNet(nn.Module):
         use_atlas_prior=False,
         use_sample_gate=False,
         sample_gate_scale=1.0,
+        use_residual_classifier=False,
+        residual_classifier_scale=0.5,
     ):
         super().__init__()
         if temperature <= 0:
             raise ValueError("temperature must be greater than zero")
         if sample_gate_scale < 0:
             raise ValueError("sample_gate_scale must be non-negative")
+        if residual_classifier_scale < 0:
+            raise ValueError("residual_classifier_scale must be non-negative")
 
         self.atlas_specs = OrderedDict(atlas_specs)
         self.atlas_names = list(self.atlas_specs.keys())
@@ -42,6 +46,8 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.use_atlas_prior = use_atlas_prior
         self.use_sample_gate = use_sample_gate
         self.sample_gate_scale = sample_gate_scale
+        self.use_residual_classifier = use_residual_classifier
+        self.residual_classifier_scale = residual_classifier_scale
 
         self.encoders = nn.ModuleDict()
         self.classifiers = nn.ModuleDict()
@@ -73,6 +79,24 @@ class SMAFEdgeEnergyNet(nn.Module):
         else:
             self.sample_gate = None
 
+        if self.use_residual_classifier:
+            residual_input_dim = embedding_dim * (self.num_atlases + 1)
+            self.residual_classifier = nn.Sequential(
+                nn.Linear(residual_input_dim, hidden_dim),
+                nn.BatchNorm1d(hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, 64),
+                nn.BatchNorm1d(64),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(64, 2),
+            )
+            nn.init.zeros_(self.residual_classifier[-1].weight)
+            nn.init.zeros_(self.residual_classifier[-1].bias)
+        else:
+            self.residual_classifier = None
+
     def compute_energy(self, logits):
         return -self.temperature * torch.logsumexp(
             logits / self.temperature,
@@ -101,13 +125,35 @@ class SMAFEdgeEnergyNet(nn.Module):
             energy_score = energy_score + self.sample_gate_scale * sample_gate_logits
 
         atlas_weight = torch.softmax(energy_score, dim=1)
-        fusion_logits = torch.sum(
+        weighted_logits = torch.sum(
             atlas_weight.unsqueeze(-1) * stacked_logits,
             dim=1,
         )
+        residual_logits = None
+        fusion_logits = weighted_logits
+        if self.residual_classifier is not None:
+            stacked_embeddings = torch.stack(graph_embeddings, dim=1)
+            gated_embedding = torch.sum(
+                atlas_weight.unsqueeze(-1) * stacked_embeddings,
+                dim=1,
+            )
+            residual_input = torch.cat(
+                [
+                    stacked_embeddings.reshape(stacked_embeddings.shape[0], -1),
+                    gated_embedding,
+                ],
+                dim=-1,
+            )
+            residual_logits = self.residual_classifier(residual_input)
+            fusion_logits = (
+                weighted_logits
+                + self.residual_classifier_scale * residual_logits
+            )
 
         return {
             "fusion_logits": fusion_logits,
+            "weighted_logits": weighted_logits,
+            "residual_logits": residual_logits,
             "branch_logits": stacked_logits,
             "energy": energy,
             "atlas_weight": atlas_weight,
