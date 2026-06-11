@@ -27,10 +27,13 @@ class SMAFEdgeEnergyNet(nn.Module):
         temperature=1.0,
         use_atlas_prior=False,
         use_sample_gate=False,
+        sample_gate_scale=1.0,
     ):
         super().__init__()
         if temperature <= 0:
             raise ValueError("temperature must be greater than zero")
+        if sample_gate_scale < 0:
+            raise ValueError("sample_gate_scale must be non-negative")
 
         self.atlas_specs = OrderedDict(atlas_specs)
         self.atlas_names = list(self.atlas_specs.keys())
@@ -38,6 +41,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.temperature = temperature
         self.use_atlas_prior = use_atlas_prior
         self.use_sample_gate = use_sample_gate
+        self.sample_gate_scale = sample_gate_scale
 
         self.encoders = nn.ModuleDict()
         self.classifiers = nn.ModuleDict()
@@ -94,7 +98,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         if self.sample_gate is not None:
             sample_gate_input = torch.cat(graph_embeddings, dim=-1)
             sample_gate_logits = self.sample_gate(sample_gate_input)
-            energy_score = energy_score + sample_gate_logits
+            energy_score = energy_score + self.sample_gate_scale * sample_gate_logits
 
         atlas_weight = torch.softmax(energy_score, dim=1)
         fusion_logits = torch.sum(

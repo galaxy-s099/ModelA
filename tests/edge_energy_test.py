@@ -94,6 +94,7 @@ def main():
         dropout=0.1,
         temperature=1.0,
         use_sample_gate=True,
+        sample_gate_scale=0.5,
     )
     sample_gate_model.load_state_dict(model.state_dict(), strict=False)
     sample_gate_model.eval()

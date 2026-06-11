@@ -51,6 +51,7 @@ def build_model(config):
             temperature=model_config["temperature"],
             use_atlas_prior=model_config.get("use_atlas_prior", False),
             use_sample_gate=model_config.get("use_sample_gate", False),
+            sample_gate_scale=model_config.get("sample_gate_scale", 1.0),
         )
 
     return SMAFProposalNet(

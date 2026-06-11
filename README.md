@@ -193,6 +193,12 @@ v2.10 v2.2 structure with sample-adaptive atlas gate in energy fusion:
 python run_abide.py --config configs/abide_proposal_v2_10.yaml
 ```
 
+v3.0 v2.10 stage baseline with reduced sample gate scale:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v3_0.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
