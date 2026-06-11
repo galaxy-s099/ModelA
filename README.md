@@ -187,6 +187,12 @@ v2.9 v2.2 structure with learnable atlas prior in energy fusion:
 python run_abide.py --config configs/abide_proposal_v2_9.yaml
 ```
 
+v2.10 v2.2 structure with sample-adaptive atlas gate in energy fusion:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v2_10.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

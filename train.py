@@ -50,6 +50,7 @@ def build_model(config):
             dropout=model_config["dropout"],
             temperature=model_config["temperature"],
             use_atlas_prior=model_config.get("use_atlas_prior", False),
+            use_sample_gate=model_config.get("use_sample_gate", False),
         )
 
     return SMAFProposalNet(

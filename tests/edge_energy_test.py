@@ -87,6 +87,37 @@ def main():
     assert torch.isfinite(prior_model.atlas_prior.grad).all()
     assert prior_model.atlas_prior.grad.abs().sum() > 0
 
+    sample_gate_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_sample_gate=True,
+    )
+    sample_gate_model.load_state_dict(model.state_dict(), strict=False)
+    sample_gate_model.eval()
+    with torch.no_grad():
+        sample_gate_output = sample_gate_model(batch)
+    assert torch.allclose(
+        baseline_output["atlas_weight"],
+        sample_gate_output["atlas_weight"],
+        atol=1e-6,
+    )
+    assert torch.allclose(
+        baseline_output["fusion_logits"],
+        sample_gate_output["fusion_logits"],
+        atol=1e-6,
+    )
+
+    sample_gate_model.train()
+    sample_gate_output = sample_gate_model(batch)
+    sample_gate_loss_details = criterion(sample_gate_output, labels)
+    sample_gate_loss_details["loss"].backward()
+    assert sample_gate_model.sample_gate[-1].weight.grad is not None
+    assert torch.isfinite(sample_gate_model.sample_gate[-1].weight.grad).all()
+    assert sample_gate_model.sample_gate[-1].weight.grad.abs().sum() > 0
+
     print("Edge energy test passed.")
     print("Fusion logits:", tuple(output["fusion_logits"].shape))
     print("Atlas weights:", tuple(output["atlas_weight"].shape))
