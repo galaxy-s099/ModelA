@@ -23,6 +23,8 @@ class ProposalLoss(nn.Module):
         margin=0.1,
         regularization_mode="proposal_literal",
         class_weights=None,
+        lambda_weight_align=0.0,
+        weight_align_temperature=1.0,
     ):
         super().__init__()
         supported_modes = {"proposal_literal", "fusion_better"}
@@ -31,11 +33,17 @@ class ProposalLoss(nn.Module):
                 f"Unsupported regularization_mode: {regularization_mode}. "
                 f"Expected one of {sorted(supported_modes)}"
             )
+        if lambda_weight_align < 0:
+            raise ValueError("lambda_weight_align must be non-negative")
+        if weight_align_temperature <= 0:
+            raise ValueError("weight_align_temperature must be greater than zero")
 
         self.lambda_branch = lambda_branch
         self.lambda_reg = lambda_reg
         self.margin = margin
         self.regularization_mode = regularization_mode
+        self.lambda_weight_align = lambda_weight_align
+        self.weight_align_temperature = weight_align_temperature
         if class_weights is None:
             self.class_weights = None
         else:
@@ -69,6 +77,7 @@ class ProposalLoss(nn.Module):
                 "fusion_loss": fusion_loss.detach(),
                 "branch_loss": zero,
                 "regularization_loss": zero,
+                "weight_alignment_loss": zero,
             }
 
         branch_losses = torch.stack(
@@ -87,10 +96,39 @@ class ProposalLoss(nn.Module):
             regularization_term = fusion_loss - branch_losses + self.margin
 
         regularization_loss = torch.relu(regularization_term).sum()
+        weight_alignment_loss = fusion_loss.new_zeros(())
+        atlas_weight = output.get("atlas_weight")
+        if self.lambda_weight_align > 0:
+            if atlas_weight is None:
+                raise ValueError(
+                    "atlas_weight is required when lambda_weight_align is non-zero"
+                )
+            branch_sample_losses = torch.stack(
+                [
+                    F.cross_entropy(
+                        branch_logits[:, atlas_index],
+                        labels,
+                        weight=class_weights,
+                        reduction="none",
+                    )
+                    for atlas_index in range(branch_logits.shape[1])
+                ],
+                dim=1,
+            )
+            target_weight = torch.softmax(
+                -branch_sample_losses.detach() / self.weight_align_temperature,
+                dim=1,
+            )
+            weight_alignment_loss = F.kl_div(
+                torch.log(atlas_weight.clamp_min(1e-8)),
+                target_weight,
+                reduction="batchmean",
+            )
         total_loss = (
             fusion_loss
             + self.lambda_branch * branch_losses.sum()
             + self.lambda_reg * regularization_loss
+            + self.lambda_weight_align * weight_alignment_loss
         )
 
         return {
@@ -98,4 +136,5 @@ class ProposalLoss(nn.Module):
             "fusion_loss": fusion_loss.detach(),
             "branch_loss": branch_losses.detach().mean(),
             "regularization_loss": regularization_loss.detach(),
+            "weight_alignment_loss": weight_alignment_loss.detach(),
         }

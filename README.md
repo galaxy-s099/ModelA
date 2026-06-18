@@ -247,6 +247,12 @@ v4.2 v2.10 with a stronger CC200 branch encoder:
 python run_abide.py --config configs/abide_proposal_v4_2.yaml
 ```
 
+v4.3 v2.10 with sample-wise branch reliability weight alignment:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v4_3.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

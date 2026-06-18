@@ -41,6 +41,23 @@ def main():
         regularization_mode="proposal_literal",
         class_weights=[1.1, 1.0],
     )(output, labels)
+    alignment_output = {
+        **output,
+        "atlas_weight": torch.tensor(
+            [
+                [0.34, 0.33, 0.33],
+                [0.34, 0.33, 0.33],
+            ]
+        ),
+    }
+    alignment_loss = ProposalLoss(
+        lambda_branch=0.2,
+        lambda_reg=0.1,
+        margin=0.1,
+        regularization_mode="proposal_literal",
+        lambda_weight_align=0.05,
+        weight_align_temperature=1.0,
+    )(alignment_output, labels)
 
     assert literal_loss["regularization_loss"] > 0
     assert torch.isclose(
@@ -48,11 +65,14 @@ def main():
         torch.tensor(0.0),
     )
     assert torch.isfinite(weighted_loss["loss"])
+    assert torch.isfinite(alignment_loss["loss"])
+    assert alignment_loss["weight_alignment_loss"] >= 0
 
     print("Loss mode test passed.")
     print("proposal_literal regularization:", literal_loss["regularization_loss"].item())
     print("fusion_better regularization:", fusion_better_loss["regularization_loss"].item())
     print("weighted loss:", weighted_loss["loss"].item())
+    print("weight alignment:", alignment_loss["weight_alignment_loss"].item())
 
 
 if __name__ == "__main__":

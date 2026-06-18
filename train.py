@@ -108,6 +108,11 @@ def build_loss(config):
             "proposal_literal",
         ),
         class_weights=loss_config.get("class_weights"),
+        lambda_weight_align=loss_config.get("lambda_weight_align", 0.0),
+        weight_align_temperature=loss_config.get(
+            "weight_align_temperature",
+            1.0,
+        ),
     )
 
 
