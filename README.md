@@ -229,6 +229,12 @@ v3.5 v2.10 with a light negative-class loss weight for ACC/SPE balance:
 python run_abide.py --config configs/abide_proposal_v3_5.yaml
 ```
 
+v4.0 v2.10 with a lightweight shared correction head:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v4_0.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

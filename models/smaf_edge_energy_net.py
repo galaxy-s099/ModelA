@@ -32,6 +32,8 @@ class SMAFEdgeEnergyNet(nn.Module):
         residual_classifier_scale=0.5,
         use_dual_energy_blend=False,
         dual_energy_blend_alpha=0.5,
+        use_shared_correction=False,
+        shared_correction_scale=0.25,
     ):
         super().__init__()
         if temperature <= 0:
@@ -42,6 +44,8 @@ class SMAFEdgeEnergyNet(nn.Module):
             raise ValueError("residual_classifier_scale must be non-negative")
         if not 0.0 <= dual_energy_blend_alpha <= 1.0:
             raise ValueError("dual_energy_blend_alpha must be in [0, 1]")
+        if shared_correction_scale < 0:
+            raise ValueError("shared_correction_scale must be non-negative")
 
         self.atlas_specs = OrderedDict(atlas_specs)
         self.atlas_names = list(self.atlas_specs.keys())
@@ -54,6 +58,8 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.residual_classifier_scale = residual_classifier_scale
         self.use_dual_energy_blend = use_dual_energy_blend
         self.dual_energy_blend_alpha = dual_energy_blend_alpha
+        self.use_shared_correction = use_shared_correction
+        self.shared_correction_scale = shared_correction_scale
 
         self.encoders = nn.ModuleDict()
         self.classifiers = nn.ModuleDict()
@@ -103,6 +109,21 @@ class SMAFEdgeEnergyNet(nn.Module):
         else:
             self.residual_classifier = None
 
+        if self.use_shared_correction:
+            correction_input_dim = embedding_dim * self.num_atlases
+            correction_hidden_dim = max(64, embedding_dim)
+            self.shared_correction = nn.Sequential(
+                nn.LayerNorm(correction_input_dim),
+                nn.Linear(correction_input_dim, correction_hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(correction_hidden_dim, 2),
+            )
+            nn.init.zeros_(self.shared_correction[-1].weight)
+            nn.init.zeros_(self.shared_correction[-1].bias)
+        else:
+            self.shared_correction = None
+
     def compute_energy(self, logits):
         return -self.temperature * torch.logsumexp(
             logits / self.temperature,
@@ -145,6 +166,7 @@ class SMAFEdgeEnergyNet(nn.Module):
             dim=1,
         )
         residual_logits = None
+        shared_correction_logits = None
         fusion_logits = weighted_logits
         if self.residual_classifier is not None:
             stacked_embeddings = torch.stack(graph_embeddings, dim=1)
@@ -164,11 +186,19 @@ class SMAFEdgeEnergyNet(nn.Module):
                 weighted_logits
                 + self.residual_classifier_scale * residual_logits
             )
+        if self.shared_correction is not None:
+            shared_input = torch.cat(graph_embeddings, dim=-1)
+            shared_correction_logits = self.shared_correction(shared_input)
+            fusion_logits = (
+                fusion_logits
+                + self.shared_correction_scale * shared_correction_logits
+            )
 
         return {
             "fusion_logits": fusion_logits,
             "weighted_logits": weighted_logits,
             "residual_logits": residual_logits,
+            "shared_correction_logits": shared_correction_logits,
             "branch_logits": stacked_logits,
             "energy": energy,
             "atlas_weight": atlas_weight,

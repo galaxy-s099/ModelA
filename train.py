@@ -68,6 +68,14 @@ def build_model(config):
                 "dual_energy_blend_alpha",
                 0.5,
             ),
+            use_shared_correction=model_config.get(
+                "use_shared_correction",
+                False,
+            ),
+            shared_correction_scale=model_config.get(
+                "shared_correction_scale",
+                0.25,
+            ),
         )
 
     return SMAFProposalNet(

@@ -192,6 +192,46 @@ def main():
     assert torch.isfinite(blend_model.sample_gate[-1].weight.grad).all()
     assert blend_model.sample_gate[-1].weight.grad.abs().sum() > 0
 
+    shared_correction_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_sample_gate=True,
+        use_shared_correction=True,
+        shared_correction_scale=0.25,
+    )
+    shared_correction_model.load_state_dict(
+        sample_gate_model.state_dict(),
+        strict=False,
+    )
+    sample_gate_model.eval()
+    shared_correction_model.eval()
+    with torch.no_grad():
+        sample_gate_baseline = sample_gate_model(batch)
+        shared_correction_output = shared_correction_model(batch)
+    assert torch.allclose(
+        sample_gate_baseline["fusion_logits"],
+        shared_correction_output["fusion_logits"],
+        atol=1e-6,
+    )
+    assert torch.allclose(
+        shared_correction_output["shared_correction_logits"],
+        torch.zeros_like(shared_correction_output["shared_correction_logits"]),
+        atol=1e-6,
+    )
+
+    shared_correction_model.train()
+    shared_correction_output = shared_correction_model(batch)
+    shared_correction_loss_details = criterion(shared_correction_output, labels)
+    shared_correction_loss_details["loss"].backward()
+    assert shared_correction_model.shared_correction[-1].weight.grad is not None
+    assert torch.isfinite(
+        shared_correction_model.shared_correction[-1].weight.grad
+    ).all()
+    assert shared_correction_model.shared_correction[-1].weight.grad.abs().sum() > 0
+
     print("Edge energy test passed.")
     print("Fusion logits:", tuple(output["fusion_logits"].shape))
     print("Atlas weights:", tuple(output["atlas_weight"].shape))
