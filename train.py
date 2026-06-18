@@ -98,6 +98,7 @@ def build_loss(config):
             "regularization_mode",
             "proposal_literal",
         ),
+        class_weights=loss_config.get("class_weights"),
     )
 
 

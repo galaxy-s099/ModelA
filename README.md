@@ -223,6 +223,12 @@ v3.4 v2.10 on the QC10 filtered rebuilt FC dataset:
 python run_abide.py --config configs/abide_proposal_v3_4.yaml
 ```
 
+v3.5 v2.10 with a light negative-class loss weight for ACC/SPE balance:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v3_5.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

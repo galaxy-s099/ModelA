@@ -22,6 +22,7 @@ class ProposalLoss(nn.Module):
         lambda_reg=0.1,
         margin=0.1,
         regularization_mode="proposal_literal",
+        class_weights=None,
     ):
         super().__init__()
         supported_modes = {"proposal_literal", "fusion_better"}
@@ -35,9 +36,26 @@ class ProposalLoss(nn.Module):
         self.lambda_reg = lambda_reg
         self.margin = margin
         self.regularization_mode = regularization_mode
+        if class_weights is None:
+            self.class_weights = None
+        else:
+            weights = torch.as_tensor(class_weights, dtype=torch.float32)
+            if weights.shape != (2,):
+                raise ValueError("class_weights must contain exactly two values")
+            if torch.any(weights <= 0):
+                raise ValueError("class_weights must be positive")
+            self.class_weights = weights
 
     def forward(self, output, labels):
-        fusion_loss = F.cross_entropy(output["fusion_logits"], labels)
+        class_weights = None
+        if self.class_weights is not None:
+            class_weights = self.class_weights.to(labels.device)
+
+        fusion_loss = F.cross_entropy(
+            output["fusion_logits"],
+            labels,
+            weight=class_weights,
+        )
         branch_logits = output.get("branch_logits")
         if branch_logits is None:
             if self.lambda_branch != 0 or self.lambda_reg != 0:
@@ -55,7 +73,11 @@ class ProposalLoss(nn.Module):
 
         branch_losses = torch.stack(
             [
-                F.cross_entropy(branch_logits[:, atlas_index], labels)
+                F.cross_entropy(
+                    branch_logits[:, atlas_index],
+                    labels,
+                    weight=class_weights,
+                )
                 for atlas_index in range(branch_logits.shape[1])
             ]
         )
