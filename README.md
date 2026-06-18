@@ -205,6 +205,12 @@ v3.1 v2.10 with zero-initialized residual classifier head:
 python run_abide.py --config configs/abide_proposal_v3_1.yaml
 ```
 
+v3.2 v2.10 with longer training and lower learning rate:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v3_2.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
