@@ -30,6 +30,8 @@ class SMAFEdgeEnergyNet(nn.Module):
         sample_gate_scale=1.0,
         use_residual_classifier=False,
         residual_classifier_scale=0.5,
+        use_dual_energy_blend=False,
+        dual_energy_blend_alpha=0.5,
     ):
         super().__init__()
         if temperature <= 0:
@@ -38,6 +40,8 @@ class SMAFEdgeEnergyNet(nn.Module):
             raise ValueError("sample_gate_scale must be non-negative")
         if residual_classifier_scale < 0:
             raise ValueError("residual_classifier_scale must be non-negative")
+        if not 0.0 <= dual_energy_blend_alpha <= 1.0:
+            raise ValueError("dual_energy_blend_alpha must be in [0, 1]")
 
         self.atlas_specs = OrderedDict(atlas_specs)
         self.atlas_names = list(self.atlas_specs.keys())
@@ -48,6 +52,8 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.sample_gate_scale = sample_gate_scale
         self.use_residual_classifier = use_residual_classifier
         self.residual_classifier_scale = residual_classifier_scale
+        self.use_dual_energy_blend = use_dual_energy_blend
+        self.dual_energy_blend_alpha = dual_energy_blend_alpha
 
         self.encoders = nn.ModuleDict()
         self.classifiers = nn.ModuleDict()
@@ -118,13 +124,22 @@ class SMAFEdgeEnergyNet(nn.Module):
         energy_score = -energy
         if self.atlas_prior is not None:
             energy_score = energy_score + self.atlas_prior.unsqueeze(0)
+        base_energy_score = energy_score
         sample_gate_logits = None
         if self.sample_gate is not None:
             sample_gate_input = torch.cat(graph_embeddings, dim=-1)
             sample_gate_logits = self.sample_gate(sample_gate_input)
             energy_score = energy_score + self.sample_gate_scale * sample_gate_logits
 
-        atlas_weight = torch.softmax(energy_score, dim=1)
+        base_atlas_weight = torch.softmax(base_energy_score, dim=1)
+        gated_atlas_weight = torch.softmax(energy_score, dim=1)
+        if self.use_dual_energy_blend:
+            atlas_weight = (
+                self.dual_energy_blend_alpha * gated_atlas_weight
+                + (1.0 - self.dual_energy_blend_alpha) * base_atlas_weight
+            )
+        else:
+            atlas_weight = gated_atlas_weight
         weighted_logits = torch.sum(
             atlas_weight.unsqueeze(-1) * stacked_logits,
             dim=1,
@@ -157,6 +172,8 @@ class SMAFEdgeEnergyNet(nn.Module):
             "branch_logits": stacked_logits,
             "energy": energy,
             "atlas_weight": atlas_weight,
+            "base_atlas_weight": base_atlas_weight,
+            "gated_atlas_weight": gated_atlas_weight,
             "atlas_prior": self.atlas_prior,
             "sample_gate_logits": sample_gate_logits,
             "branch_details": branch_details,

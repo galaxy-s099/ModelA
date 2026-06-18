@@ -60,6 +60,14 @@ def build_model(config):
                 "residual_classifier_scale",
                 0.5,
             ),
+            use_dual_energy_blend=model_config.get(
+                "use_dual_energy_blend",
+                False,
+            ),
+            dual_energy_blend_alpha=model_config.get(
+                "dual_energy_blend_alpha",
+                0.5,
+            ),
         )
 
     return SMAFProposalNet(

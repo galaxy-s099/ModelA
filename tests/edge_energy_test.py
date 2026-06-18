@@ -154,6 +154,44 @@ def main():
     assert torch.isfinite(residual_model.residual_classifier[-1].weight.grad).all()
     assert residual_model.residual_classifier[-1].weight.grad.abs().sum() > 0
 
+    blend_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_sample_gate=True,
+        use_dual_energy_blend=True,
+        dual_energy_blend_alpha=0.5,
+    )
+    blend_model.load_state_dict(sample_gate_model.state_dict(), strict=False)
+    blend_model.eval()
+    with torch.no_grad():
+        blend_output = blend_model(batch)
+    assert torch.allclose(
+        blend_output["atlas_weight"].sum(dim=1),
+        torch.ones(4),
+        atol=1e-6,
+    )
+    assert torch.allclose(
+        blend_output["base_atlas_weight"],
+        blend_output["gated_atlas_weight"],
+        atol=1e-6,
+    )
+    assert torch.allclose(
+        blend_output["weighted_logits"],
+        blend_output["fusion_logits"],
+        atol=1e-6,
+    )
+
+    blend_model.train()
+    blend_output = blend_model(batch)
+    blend_loss_details = criterion(blend_output, labels)
+    blend_loss_details["loss"].backward()
+    assert blend_model.sample_gate[-1].weight.grad is not None
+    assert torch.isfinite(blend_model.sample_gate[-1].weight.grad).all()
+    assert blend_model.sample_gate[-1].weight.grad.abs().sum() > 0
+
     print("Edge energy test passed.")
     print("Fusion logits:", tuple(output["fusion_logits"].shape))
     print("Atlas weights:", tuple(output["atlas_weight"].shape))
