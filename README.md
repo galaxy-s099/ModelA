@@ -217,6 +217,12 @@ v3.3 v2.10 blended with base energy fusion:
 python run_abide.py --config configs/abide_proposal_v3_3.yaml
 ```
 
+v3.4 v2.10 on the QC10 filtered rebuilt FC dataset:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v3_4.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
