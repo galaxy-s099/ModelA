@@ -34,6 +34,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         dual_energy_blend_alpha=0.5,
         use_shared_correction=False,
         shared_correction_scale=0.25,
+        atlas_overrides=None,
     ):
         super().__init__()
         if temperature <= 0:
@@ -60,19 +61,30 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.dual_energy_blend_alpha = dual_energy_blend_alpha
         self.use_shared_correction = use_shared_correction
         self.shared_correction_scale = shared_correction_scale
+        self.atlas_overrides = atlas_overrides or {}
+        self.embedding_dims = {}
+        self.total_embedding_dim = 0
 
         self.encoders = nn.ModuleDict()
         self.classifiers = nn.ModuleDict()
         for atlas_name, spec in self.atlas_specs.items():
+            atlas_config = self.atlas_overrides.get(atlas_name, {})
+            atlas_hidden_dim = int(atlas_config.get("hidden_dim", hidden_dim))
+            atlas_embedding_dim = int(
+                atlas_config.get("embedding_dim", embedding_dim)
+            )
+            atlas_dropout = float(atlas_config.get("dropout", dropout))
             num_nodes = int(spec["num_nodes"])
             input_dim = num_nodes * (num_nodes - 1)
             self.encoders[atlas_name] = EdgeBranchEncoder(
                 input_dim=input_dim,
-                hidden_dim=hidden_dim,
-                embedding_dim=embedding_dim,
-                dropout=dropout,
+                hidden_dim=atlas_hidden_dim,
+                embedding_dim=atlas_embedding_dim,
+                dropout=atlas_dropout,
             )
-            self.classifiers[atlas_name] = nn.Linear(embedding_dim, 2)
+            self.classifiers[atlas_name] = nn.Linear(atlas_embedding_dim, 2)
+            self.embedding_dims[atlas_name] = atlas_embedding_dim
+            self.total_embedding_dim += atlas_embedding_dim
 
         if self.use_atlas_prior:
             self.atlas_prior = nn.Parameter(torch.zeros(self.num_atlases))
@@ -81,7 +93,7 @@ class SMAFEdgeEnergyNet(nn.Module):
 
         if self.use_sample_gate:
             self.sample_gate = nn.Sequential(
-                nn.Linear(embedding_dim * self.num_atlases, hidden_dim),
+                nn.Linear(self.total_embedding_dim, hidden_dim),
                 nn.ReLU(),
                 nn.Dropout(dropout),
                 nn.Linear(hidden_dim, self.num_atlases),
@@ -92,7 +104,12 @@ class SMAFEdgeEnergyNet(nn.Module):
             self.sample_gate = None
 
         if self.use_residual_classifier:
-            residual_input_dim = embedding_dim * (self.num_atlases + 1)
+            if len(set(self.embedding_dims.values())) != 1:
+                raise ValueError(
+                    "use_residual_classifier requires equal atlas embedding dims"
+                )
+            shared_embedding_dim = next(iter(self.embedding_dims.values()))
+            residual_input_dim = shared_embedding_dim * (self.num_atlases + 1)
             self.residual_classifier = nn.Sequential(
                 nn.Linear(residual_input_dim, hidden_dim),
                 nn.BatchNorm1d(hidden_dim),
@@ -110,7 +127,7 @@ class SMAFEdgeEnergyNet(nn.Module):
             self.residual_classifier = None
 
         if self.use_shared_correction:
-            correction_input_dim = embedding_dim * self.num_atlases
+            correction_input_dim = self.total_embedding_dim
             correction_hidden_dim = max(64, embedding_dim)
             self.shared_correction = nn.Sequential(
                 nn.LayerNorm(correction_input_dim),

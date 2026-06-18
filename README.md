@@ -241,6 +241,12 @@ v4.1 v2.10 diagnostic run with per-atlas branch metrics and fusion weights:
 python run_abide.py --config configs/abide_proposal_v4_1.yaml
 ```
 
+v4.2 v2.10 with a stronger CC200 branch encoder:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v4_2.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

@@ -232,6 +232,29 @@ def main():
     ).all()
     assert shared_correction_model.shared_correction[-1].weight.grad.abs().sum() > 0
 
+    override_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_sample_gate=True,
+        atlas_overrides={
+            "cc200": {
+                "hidden_dim": 24,
+                "embedding_dim": 12,
+                "dropout": 0.05,
+            }
+        },
+    )
+    override_output = override_model(batch)
+    assert override_output["fusion_logits"].shape == (4, 2)
+    assert override_output["branch_logits"].shape == (4, 3, 2)
+    assert override_model.embedding_dims["cc200"] == 12
+    override_loss_details = criterion(override_output, labels)
+    override_loss_details["loss"].backward()
+    assert torch.isfinite(override_loss_details["loss"])
+
     print("Edge energy test passed.")
     print("Fusion logits:", tuple(output["fusion_logits"].shape))
     print("Atlas weights:", tuple(output["atlas_weight"].shape))

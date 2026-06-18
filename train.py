@@ -76,6 +76,7 @@ def build_model(config):
                 "shared_correction_scale",
                 0.25,
             ),
+            atlas_overrides=model_config.get("atlas_overrides"),
         )
 
     return SMAFProposalNet(
