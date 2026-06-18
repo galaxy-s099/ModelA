@@ -235,6 +235,12 @@ v4.0 v2.10 with a lightweight shared correction head:
 python run_abide.py --config configs/abide_proposal_v4_0.yaml
 ```
 
+v4.1 v2.10 diagnostic run with per-atlas branch metrics and fusion weights:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v4_1.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

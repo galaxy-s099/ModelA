@@ -124,12 +124,29 @@ def search_best_threshold(y_true, y_prob):
     return float(best_threshold), float(best_acc)
 
 
+def add_probability_metrics(metrics, prefix, labels, probabilities, threshold):
+    predictions = (probabilities >= threshold).astype(int)
+    prefixed_metrics = compute_metrics(labels, probabilities, predictions)
+    for key, value in prefixed_metrics.items():
+        metrics[f"{prefix}_{key}"] = value
+
+
 def evaluate_model(model, dataloader, device, threshold=0.5):
     model.eval()
     probabilities = []
     predictions = []
     labels = []
-    atlas_weights = []
+    atlas_weight_outputs = {
+        "Weight": [],
+        "BaseWeight": [],
+        "GatedWeight": [],
+    }
+    sample_gate_logits = []
+    weighted_probabilities = []
+    branch_probabilities = {
+        atlas_name: []
+        for atlas_name in getattr(model, "atlas_names", [])
+    }
 
     with torch.no_grad():
         for batch in dataloader:
@@ -140,19 +157,74 @@ def evaluate_model(model, dataloader, device, threshold=0.5):
             probabilities.extend(batch_probabilities.cpu().numpy())
             predictions.extend((batch_probabilities >= threshold).long().cpu().numpy())
             labels.extend(batch["label"].cpu().numpy())
-            atlas_weight = output.get("atlas_weight")
-            if atlas_weight is not None:
-                atlas_weights.append(atlas_weight.cpu().numpy())
+
+            weighted_logits = output.get("weighted_logits")
+            if weighted_logits is not None:
+                weighted_batch_probabilities = F.softmax(
+                    weighted_logits,
+                    dim=-1,
+                )[:, 1]
+                weighted_probabilities.extend(
+                    weighted_batch_probabilities.cpu().numpy()
+                )
+
+            branch_logits = output.get("branch_logits")
+            if branch_logits is not None and branch_probabilities:
+                branch_batch_probabilities = F.softmax(branch_logits, dim=-1)[:, :, 1]
+                for atlas_index, atlas_name in enumerate(model.atlas_names):
+                    branch_probabilities[atlas_name].extend(
+                        branch_batch_probabilities[:, atlas_index].cpu().numpy()
+                    )
+
+            for output_key, metric_prefix in [
+                ("atlas_weight", "Weight"),
+                ("base_atlas_weight", "BaseWeight"),
+                ("gated_atlas_weight", "GatedWeight"),
+            ]:
+                weight_output = output.get(output_key)
+                if weight_output is not None:
+                    atlas_weight_outputs[metric_prefix].append(
+                        weight_output.cpu().numpy()
+                    )
+
+            sample_gate_output = output.get("sample_gate_logits")
+            if sample_gate_output is not None:
+                sample_gate_logits.append(sample_gate_output.cpu().numpy())
 
     labels = np.asarray(labels)
     probabilities = np.asarray(probabilities)
     predictions = np.asarray(predictions)
     metrics = compute_metrics(labels, probabilities, predictions)
 
-    if atlas_weights:
-        mean_atlas_weight = np.concatenate(atlas_weights, axis=0).mean(axis=0)
-        for atlas_name, weight in zip(model.atlas_names, mean_atlas_weight):
-            metrics[f"Weight_{atlas_name}"] = float(weight)
+    if weighted_probabilities:
+        add_probability_metrics(
+            metrics,
+            "Weighted",
+            labels,
+            np.asarray(weighted_probabilities),
+            threshold,
+        )
+
+    for atlas_name, atlas_probabilities in branch_probabilities.items():
+        if atlas_probabilities:
+            add_probability_metrics(
+                metrics,
+                f"Branch_{atlas_name}",
+                labels,
+                np.asarray(atlas_probabilities),
+                threshold,
+            )
+
+    for metric_prefix, weight_batches in atlas_weight_outputs.items():
+        if weight_batches:
+            mean_atlas_weight = np.concatenate(weight_batches, axis=0).mean(axis=0)
+            for atlas_name, weight in zip(model.atlas_names, mean_atlas_weight):
+                metrics[f"{metric_prefix}_{atlas_name}"] = float(weight)
+
+    if sample_gate_logits:
+        mean_gate_logits = np.concatenate(sample_gate_logits, axis=0).mean(axis=0)
+        for atlas_name, gate_logit in zip(model.atlas_names, mean_gate_logits):
+            metrics[f"GateLogit_{atlas_name}"] = float(gate_logit)
 
     return metrics, probabilities, labels
 
