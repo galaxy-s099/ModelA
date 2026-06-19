@@ -259,6 +259,12 @@ v4.4 v4.3 with weaker branch reliability weight alignment:
 python run_abide.py --config configs/abide_proposal_v4_4.yaml
 ```
 
+v5.0 v2.10 with post-training train-fold threshold calibration:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v5_0.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

@@ -262,6 +262,13 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         batch_size=train_config["batch_size"],
         shuffle=True,
     )
+    train_eval_loader = None
+    if train_config.get("search_train_threshold", False):
+        train_eval_loader = DataLoader(
+            ABIDEMultiAtlasDataset(data_root, atlas_specs, train_sub_idx),
+            batch_size=train_config["batch_size"],
+            shuffle=False,
+        )
     test_loader = DataLoader(
         ABIDEMultiAtlasDataset(data_root, atlas_specs, test_idx),
         batch_size=train_config["batch_size"],
@@ -317,6 +324,19 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     if best_state is not None:
         model.load_state_dict(best_state)
 
+    if train_eval_loader is not None and best_state is None:
+        _, train_probabilities, train_labels = evaluate_model(
+            model,
+            train_eval_loader,
+            device,
+        )
+        threshold, train_acc = search_best_threshold(
+            train_labels,
+            train_probabilities,
+        )
+        best_threshold = threshold
+        best_val_acc = train_acc
+
     metrics, _, _ = evaluate_model(
         model,
         test_loader,
@@ -327,6 +347,9 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         metrics["Best_Epoch"] = best_epoch
         metrics["Best_Threshold"] = best_threshold
         metrics["Val_ACC"] = best_val_acc
+    elif train_eval_loader is not None:
+        metrics["Train_Threshold"] = best_threshold
+        metrics["Train_Threshold_ACC"] = best_val_acc
 
     return metrics
 
