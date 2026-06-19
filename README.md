@@ -253,6 +253,12 @@ v4.3 v2.10 with sample-wise branch reliability weight alignment:
 python run_abide.py --config configs/abide_proposal_v4_3.yaml
 ```
 
+v4.4 v4.3 with weaker branch reliability weight alignment:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v4_4.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
