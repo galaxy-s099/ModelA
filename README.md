@@ -283,6 +283,12 @@ v6.0 v2.10 with strict validation-best checkpoint selection by Val AUC:
 python run_abide.py --config configs/abide_proposal_v6_0.yaml
 ```
 
+v6.1 v2.10 with strict validation-best checkpoint selection by Val F1:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v6_1.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
