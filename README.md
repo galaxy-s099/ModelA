@@ -271,6 +271,12 @@ v5.1 v2.10 fusion with edge-vector and ROI/node-summary branch encoders:
 python run_abide.py --config configs/abide_proposal_v5_1.yaml
 ```
 
+v5.2 v2.10 fusion with zero-initialized edge bottleneck residual encoders:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v5_2.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

@@ -61,12 +61,19 @@ class EdgeBranchEncoder(nn.Module):
         use_node_summary=False,
         node_summary_hidden_dim=64,
         node_summary_embedding_dim=32,
+        use_edge_residual=False,
+        edge_residual_hidden_dim=64,
+        edge_residual_scale=0.25,
     ):
         super().__init__()
         if use_node_summary and num_nodes is None:
             raise ValueError("num_nodes is required when use_node_summary is true")
+        if edge_residual_scale < 0:
+            raise ValueError("edge_residual_scale must be non-negative")
 
         self.use_node_summary = use_node_summary
+        self.use_edge_residual = use_edge_residual
+        self.edge_residual_scale = edge_residual_scale
         self.edge_encoder = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
@@ -99,8 +106,26 @@ class EdgeBranchEncoder(nn.Module):
             self.node_summary_encoder = None
             self.fusion = None
 
+        if self.use_edge_residual:
+            self.edge_residual = nn.Sequential(
+                nn.Linear(input_dim, edge_residual_hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(edge_residual_hidden_dim, embedding_dim),
+            )
+            nn.init.zeros_(self.edge_residual[-1].weight)
+            nn.init.zeros_(self.edge_residual[-1].bias)
+        else:
+            self.edge_residual = None
+
     def forward(self, fc):
-        edge_embedding = self.edge_encoder(fc_to_signed_edge_vector(fc))
+        edge_vector = fc_to_signed_edge_vector(fc)
+        edge_embedding = self.edge_encoder(edge_vector)
+        if self.edge_residual is not None:
+            edge_embedding = (
+                edge_embedding
+                + self.edge_residual_scale * self.edge_residual(edge_vector)
+            )
         if not self.use_node_summary:
             return edge_embedding
 

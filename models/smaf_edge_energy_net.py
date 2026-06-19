@@ -38,6 +38,9 @@ class SMAFEdgeEnergyNet(nn.Module):
         use_node_summary=False,
         node_summary_hidden_dim=64,
         node_summary_embedding_dim=32,
+        use_edge_residual=False,
+        edge_residual_hidden_dim=64,
+        edge_residual_scale=0.25,
     ):
         super().__init__()
         if temperature <= 0:
@@ -68,6 +71,9 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.use_node_summary = use_node_summary
         self.node_summary_hidden_dim = node_summary_hidden_dim
         self.node_summary_embedding_dim = node_summary_embedding_dim
+        self.use_edge_residual = use_edge_residual
+        self.edge_residual_hidden_dim = edge_residual_hidden_dim
+        self.edge_residual_scale = edge_residual_scale
         self.embedding_dims = {}
         self.total_embedding_dim = 0
 
@@ -95,6 +101,18 @@ class SMAFEdgeEnergyNet(nn.Module):
                     node_summary_embedding_dim,
                 )
             )
+            atlas_use_edge_residual = bool(
+                atlas_config.get("use_edge_residual", use_edge_residual)
+            )
+            atlas_edge_residual_hidden_dim = int(
+                atlas_config.get(
+                    "edge_residual_hidden_dim",
+                    edge_residual_hidden_dim,
+                )
+            )
+            atlas_edge_residual_scale = float(
+                atlas_config.get("edge_residual_scale", edge_residual_scale)
+            )
             num_nodes = int(spec["num_nodes"])
             input_dim = num_nodes * (num_nodes - 1)
             self.encoders[atlas_name] = EdgeBranchEncoder(
@@ -106,6 +124,9 @@ class SMAFEdgeEnergyNet(nn.Module):
                 use_node_summary=atlas_use_node_summary,
                 node_summary_hidden_dim=atlas_node_summary_hidden_dim,
                 node_summary_embedding_dim=atlas_node_summary_embedding_dim,
+                use_edge_residual=atlas_use_edge_residual,
+                edge_residual_hidden_dim=atlas_edge_residual_hidden_dim,
+                edge_residual_scale=atlas_edge_residual_scale,
             )
             self.classifiers[atlas_name] = nn.Linear(atlas_embedding_dim, 2)
             self.embedding_dims[atlas_name] = atlas_embedding_dim

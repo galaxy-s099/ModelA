@@ -86,6 +86,15 @@ def build_model(config):
                 "node_summary_embedding_dim",
                 32,
             ),
+            use_edge_residual=model_config.get("use_edge_residual", False),
+            edge_residual_hidden_dim=model_config.get(
+                "edge_residual_hidden_dim",
+                64,
+            ),
+            edge_residual_scale=model_config.get(
+                "edge_residual_scale",
+                0.25,
+            ),
         )
 
     return SMAFProposalNet(
