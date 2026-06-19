@@ -152,6 +152,31 @@ def normalize_metric_name(metric_name):
     return str(metric_name).upper()
 
 
+def compute_validation_score(metrics, select_metric, composite_metrics=None):
+    select_metric = normalize_metric_name(select_metric)
+    if select_metric == "COMPOSITE":
+        metric_names = composite_metrics or ["ACC", "AUC", "F1"]
+        metric_names = [normalize_metric_name(metric_name) for metric_name in metric_names]
+        missing_metrics = [
+            metric_name
+            for metric_name in metric_names
+            if metric_name not in metrics
+        ]
+        if missing_metrics:
+            raise ValueError(
+                f"Unsupported composite validation metrics: {missing_metrics}. "
+                f"Expected values from {sorted(metrics.keys())}"
+            )
+        return float(np.mean([metrics[metric_name] for metric_name in metric_names]))
+
+    if select_metric not in metrics:
+        raise ValueError(
+            f"Unsupported val_select_metric: {select_metric}. "
+            f"Expected one of {sorted(metrics.keys())} or COMPOSITE"
+        )
+    return metrics[select_metric]
+
+
 def add_probability_metrics(metrics, prefix, labels, probabilities, threshold):
     predictions = (probabilities >= threshold).astype(int)
     prefixed_metrics = compute_metrics(labels, probabilities, predictions)
@@ -320,6 +345,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     val_select_metric = normalize_metric_name(
         train_config.get("val_select_metric", "ACC")
     )
+    val_select_metrics = train_config.get("val_select_metrics")
     search_val_threshold = train_config.get(
         "search_val_threshold",
         val_select_metric == "ACC",
@@ -357,13 +383,11 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                     threshold_predictions,
                 )
 
-            if val_select_metric not in score_metrics:
-                raise ValueError(
-                    f"Unsupported val_select_metric: {val_select_metric}. "
-                    f"Expected one of {sorted(score_metrics.keys())}"
-                )
-
-            val_score = score_metrics[val_select_metric]
+            val_score = compute_validation_score(
+                score_metrics,
+                val_select_metric,
+                val_select_metrics,
+            )
             if val_score > best_val_score:
                 best_state = deepcopy(model.state_dict())
                 best_val_score = val_score
