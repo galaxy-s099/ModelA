@@ -255,6 +255,24 @@ def main():
     override_loss_details["loss"].backward()
     assert torch.isfinite(override_loss_details["loss"])
 
+    node_summary_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_sample_gate=True,
+        use_node_summary=True,
+        node_summary_hidden_dim=8,
+        node_summary_embedding_dim=4,
+    )
+    node_summary_output = node_summary_model(batch)
+    assert node_summary_output["fusion_logits"].shape == (4, 2)
+    assert node_summary_output["branch_logits"].shape == (4, 3, 2)
+    node_summary_loss_details = criterion(node_summary_output, labels)
+    node_summary_loss_details["loss"].backward()
+    assert torch.isfinite(node_summary_loss_details["loss"])
+
     print("Edge energy test passed.")
     print("Fusion logits:", tuple(output["fusion_logits"].shape))
     print("Atlas weights:", tuple(output["atlas_weight"].shape))

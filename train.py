@@ -77,6 +77,15 @@ def build_model(config):
                 0.25,
             ),
             atlas_overrides=model_config.get("atlas_overrides"),
+            use_node_summary=model_config.get("use_node_summary", False),
+            node_summary_hidden_dim=model_config.get(
+                "node_summary_hidden_dim",
+                64,
+            ),
+            node_summary_embedding_dim=model_config.get(
+                "node_summary_embedding_dim",
+                32,
+            ),
         )
 
     return SMAFProposalNet(

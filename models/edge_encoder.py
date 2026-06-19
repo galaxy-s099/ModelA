@@ -28,12 +28,46 @@ def fc_to_signed_edge_vector(fc):
     return torch.cat([positive_vector, negative_vector], dim=-1)
 
 
+def fc_to_node_summary(fc):
+    """
+    Summarize each ROI by positive, negative, and absolute connection strength.
+
+    This keeps a lightweight node-level view alongside the flattened edge view.
+    """
+    if fc.ndim != 3 or fc.shape[-1] != fc.shape[-2]:
+        raise ValueError(f"Expected FC shape B x N x N, received {tuple(fc.shape)}")
+
+    _, num_nodes, _ = fc.shape
+    normalizer = max(num_nodes - 1, 1)
+    positive_strength = torch.clamp(fc, min=0.0).sum(dim=-1) / normalizer
+    negative_strength = torch.clamp(-fc, min=0.0).sum(dim=-1) / normalizer
+    absolute_strength = fc.abs().sum(dim=-1) / normalizer
+    return torch.cat(
+        [positive_strength, negative_strength, absolute_strength],
+        dim=-1,
+    )
+
+
 class EdgeBranchEncoder(nn.Module):
     """Signed edge-vector atlas encoder used by the stronger SMAF-Net v5 branch."""
 
-    def __init__(self, input_dim, hidden_dim=256, embedding_dim=128, dropout=0.5):
+    def __init__(
+        self,
+        input_dim,
+        hidden_dim=256,
+        embedding_dim=128,
+        dropout=0.5,
+        num_nodes=None,
+        use_node_summary=False,
+        node_summary_hidden_dim=64,
+        node_summary_embedding_dim=32,
+    ):
         super().__init__()
-        self.encoder = nn.Sequential(
+        if use_node_summary and num_nodes is None:
+            raise ValueError("num_nodes is required when use_node_summary is true")
+
+        self.use_node_summary = use_node_summary
+        self.edge_encoder = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
@@ -43,6 +77,32 @@ class EdgeBranchEncoder(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout),
         )
+        self.encoder = self.edge_encoder
+        if self.use_node_summary:
+            self.node_summary_encoder = nn.Sequential(
+                nn.Linear(3 * int(num_nodes), node_summary_hidden_dim),
+                nn.BatchNorm1d(node_summary_hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(node_summary_hidden_dim, node_summary_embedding_dim),
+                nn.BatchNorm1d(node_summary_embedding_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+            )
+            self.fusion = nn.Sequential(
+                nn.Linear(embedding_dim + node_summary_embedding_dim, embedding_dim),
+                nn.BatchNorm1d(embedding_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+            )
+        else:
+            self.node_summary_encoder = None
+            self.fusion = None
 
     def forward(self, fc):
-        return self.encoder(fc_to_signed_edge_vector(fc))
+        edge_embedding = self.edge_encoder(fc_to_signed_edge_vector(fc))
+        if not self.use_node_summary:
+            return edge_embedding
+
+        node_embedding = self.node_summary_encoder(fc_to_node_summary(fc))
+        return self.fusion(torch.cat([edge_embedding, node_embedding], dim=-1))

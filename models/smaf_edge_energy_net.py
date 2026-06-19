@@ -35,6 +35,9 @@ class SMAFEdgeEnergyNet(nn.Module):
         use_shared_correction=False,
         shared_correction_scale=0.25,
         atlas_overrides=None,
+        use_node_summary=False,
+        node_summary_hidden_dim=64,
+        node_summary_embedding_dim=32,
     ):
         super().__init__()
         if temperature <= 0:
@@ -62,6 +65,9 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.use_shared_correction = use_shared_correction
         self.shared_correction_scale = shared_correction_scale
         self.atlas_overrides = atlas_overrides or {}
+        self.use_node_summary = use_node_summary
+        self.node_summary_hidden_dim = node_summary_hidden_dim
+        self.node_summary_embedding_dim = node_summary_embedding_dim
         self.embedding_dims = {}
         self.total_embedding_dim = 0
 
@@ -74,6 +80,21 @@ class SMAFEdgeEnergyNet(nn.Module):
                 atlas_config.get("embedding_dim", embedding_dim)
             )
             atlas_dropout = float(atlas_config.get("dropout", dropout))
+            atlas_use_node_summary = bool(
+                atlas_config.get("use_node_summary", use_node_summary)
+            )
+            atlas_node_summary_hidden_dim = int(
+                atlas_config.get(
+                    "node_summary_hidden_dim",
+                    node_summary_hidden_dim,
+                )
+            )
+            atlas_node_summary_embedding_dim = int(
+                atlas_config.get(
+                    "node_summary_embedding_dim",
+                    node_summary_embedding_dim,
+                )
+            )
             num_nodes = int(spec["num_nodes"])
             input_dim = num_nodes * (num_nodes - 1)
             self.encoders[atlas_name] = EdgeBranchEncoder(
@@ -81,6 +102,10 @@ class SMAFEdgeEnergyNet(nn.Module):
                 hidden_dim=atlas_hidden_dim,
                 embedding_dim=atlas_embedding_dim,
                 dropout=atlas_dropout,
+                num_nodes=num_nodes,
+                use_node_summary=atlas_use_node_summary,
+                node_summary_hidden_dim=atlas_node_summary_hidden_dim,
+                node_summary_embedding_dim=atlas_node_summary_embedding_dim,
             )
             self.classifiers[atlas_name] = nn.Linear(atlas_embedding_dim, 2)
             self.embedding_dims[atlas_name] = atlas_embedding_dim
