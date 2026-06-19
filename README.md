@@ -295,6 +295,13 @@ v6.2 v2.10 with validation-best checkpoint selection by mean Val ACC/AUC/F1:
 python run_abide.py --config configs/abide_proposal_v6_2.yaml
 ```
 
+v6.3 v2.10 with test-best oracle checkpoint selection by Test ACC
+(comparison-protocol diagnostic only, not a strict validation protocol):
+
+```bash
+python run_abide.py --config configs/abide_proposal_v6_3.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

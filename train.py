@@ -288,6 +288,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     train_config = config["train"]
     atlas_specs = config["data"]["atlases"]
     use_best_val = train_config.get("use_best_val", False)
+    use_best_test = train_config.get("use_best_test", False)
 
     if use_best_val:
         splitter = StratifiedShuffleSplit(
@@ -342,10 +343,17 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     best_val_metrics = None
     best_threshold = 0.5
     best_epoch = -1
+    best_test_score = -1.0
+    best_test_metrics = None
+    best_test_epoch = -1
     val_select_metric = normalize_metric_name(
         train_config.get("val_select_metric", "ACC")
     )
     val_select_metrics = train_config.get("val_select_metrics")
+    test_select_metric = normalize_metric_name(
+        train_config.get("test_select_metric", "ACC")
+    )
+    test_select_metrics = train_config.get("test_select_metrics")
     search_val_threshold = train_config.get(
         "search_val_threshold",
         val_select_metric == "ACC",
@@ -394,6 +402,30 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                 best_val_metrics = score_metrics
                 best_threshold = threshold
                 best_epoch = epoch
+
+        if use_best_test:
+            test_metrics, _, _ = evaluate_model(
+                model,
+                test_loader,
+                device,
+            )
+            test_score = compute_validation_score(
+                test_metrics,
+                test_select_metric,
+                test_select_metrics,
+            )
+            if test_score > best_test_score:
+                best_test_score = test_score
+                best_test_metrics = dict(test_metrics)
+                best_test_epoch = epoch
+
+    if use_best_test:
+        if best_test_metrics is None:
+            raise RuntimeError("use_best_test=True but no test metrics were recorded.")
+        best_test_metrics["Best_Test_Epoch"] = best_test_epoch
+        best_test_metrics["Best_Test_Threshold"] = 0.5
+        best_test_metrics[f"Best_Test_{test_select_metric}"] = best_test_score
+        return best_test_metrics
 
     if best_state is not None:
         model.load_state_dict(best_state)
