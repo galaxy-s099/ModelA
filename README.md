@@ -277,6 +277,12 @@ v5.2 v2.10 fusion with zero-initialized edge bottleneck residual encoders:
 python run_abide.py --config configs/abide_proposal_v5_2.yaml
 ```
 
+v6.0 v2.10 with strict validation-best checkpoint selection by Val AUC:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v6_0.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

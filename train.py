@@ -148,6 +148,10 @@ def search_best_threshold(y_true, y_prob):
     return float(best_threshold), float(best_acc)
 
 
+def normalize_metric_name(metric_name):
+    return str(metric_name).upper()
+
+
 def add_probability_metrics(metrics, prefix, labels, probabilities, threshold):
     predictions = (probabilities >= threshold).astype(int)
     prefixed_metrics = compute_metrics(labels, probabilities, predictions)
@@ -309,9 +313,17 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     )
 
     best_state = None
-    best_val_acc = -1.0
+    best_val_score = -1.0
+    best_val_metrics = None
     best_threshold = 0.5
     best_epoch = -1
+    val_select_metric = normalize_metric_name(
+        train_config.get("val_select_metric", "ACC")
+    )
+    search_val_threshold = train_config.get(
+        "search_val_threshold",
+        val_select_metric == "ACC",
+    )
 
     for epoch in range(train_config["epochs"]):
         model.train()
@@ -324,18 +336,38 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             optimizer.step()
 
         if val_loader is not None:
-            _, val_probabilities, val_labels = evaluate_model(
+            val_metrics, val_probabilities, val_labels = evaluate_model(
                 model,
                 val_loader,
                 device,
             )
-            threshold, val_acc = search_best_threshold(
-                val_labels,
-                val_probabilities,
-            )
-            if val_acc > best_val_acc:
+            threshold = 0.5
+            score_metrics = val_metrics
+            if search_val_threshold:
+                threshold, _ = search_best_threshold(
+                    val_labels,
+                    val_probabilities,
+                )
+                threshold_predictions = (
+                    val_probabilities >= threshold
+                ).astype(int)
+                score_metrics = compute_metrics(
+                    val_labels,
+                    val_probabilities,
+                    threshold_predictions,
+                )
+
+            if val_select_metric not in score_metrics:
+                raise ValueError(
+                    f"Unsupported val_select_metric: {val_select_metric}. "
+                    f"Expected one of {sorted(score_metrics.keys())}"
+                )
+
+            val_score = score_metrics[val_select_metric]
+            if val_score > best_val_score:
                 best_state = deepcopy(model.state_dict())
-                best_val_acc = val_acc
+                best_val_score = val_score
+                best_val_metrics = score_metrics
                 best_threshold = threshold
                 best_epoch = epoch
 
@@ -353,7 +385,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             train_probabilities,
         )
         best_threshold = threshold
-        best_val_acc = train_acc
+        best_val_score = train_acc
 
     metrics, _, _ = evaluate_model(
         model,
@@ -364,10 +396,13 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     if best_state is not None:
         metrics["Best_Epoch"] = best_epoch
         metrics["Best_Threshold"] = best_threshold
-        metrics["Val_ACC"] = best_val_acc
+        metrics[f"Best_Val_{val_select_metric}"] = best_val_score
+        if best_val_metrics is not None:
+            for metric_name in ["ACC", "AUC", "SEN", "SPE", "F1"]:
+                metrics[f"Val_{metric_name}"] = best_val_metrics[metric_name]
     elif train_eval_loader is not None:
         metrics["Train_Threshold"] = best_threshold
-        metrics["Train_Threshold_ACC"] = best_val_acc
+        metrics["Train_Threshold_ACC"] = best_val_score
 
     return metrics
 
