@@ -363,6 +363,12 @@ v7.3 v6.6 with branch-logit residual correction:
 python run_abide.py --config configs/abide_proposal_v7_3.yaml
 ```
 
+v7.4 v6.6 with 100 training epochs to align the comparison setting:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v7_4.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
