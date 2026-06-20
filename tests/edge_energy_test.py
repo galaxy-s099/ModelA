@@ -232,6 +232,54 @@ def main():
     ).all()
     assert shared_correction_model.shared_correction[-1].weight.grad.abs().sum() > 0
 
+    branch_residual_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_sample_gate=True,
+        use_branch_residual_correction=True,
+        branch_residual_correction_scale=0.1,
+        branch_residual_hidden_dim=8,
+    )
+    branch_residual_model.load_state_dict(
+        sample_gate_model.state_dict(),
+        strict=False,
+    )
+    sample_gate_model.eval()
+    branch_residual_model.eval()
+    with torch.no_grad():
+        sample_gate_baseline = sample_gate_model(batch)
+        branch_residual_output = branch_residual_model(batch)
+    assert torch.allclose(
+        sample_gate_baseline["fusion_logits"],
+        branch_residual_output["fusion_logits"],
+        atol=1e-6,
+    )
+    assert torch.allclose(
+        branch_residual_output["branch_residual_correction_logits"],
+        torch.zeros_like(
+            branch_residual_output["branch_residual_correction_logits"]
+        ),
+        atol=1e-6,
+    )
+
+    branch_residual_model.train()
+    branch_residual_output = branch_residual_model(batch)
+    branch_residual_loss_details = criterion(branch_residual_output, labels)
+    branch_residual_loss_details["loss"].backward()
+    assert branch_residual_model.branch_residual_correction[-1].weight.grad is not None
+    assert torch.isfinite(
+        branch_residual_model.branch_residual_correction[-1].weight.grad
+    ).all()
+    assert (
+        branch_residual_model.branch_residual_correction[-1]
+        .weight.grad.abs()
+        .sum()
+        > 0
+    )
+
     override_model = SMAFEdgeEnergyNet(
         atlas_specs=atlas_specs,
         hidden_dim=16,

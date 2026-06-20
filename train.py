@@ -76,6 +76,18 @@ def build_model(config):
                 "shared_correction_scale",
                 0.25,
             ),
+            use_branch_residual_correction=model_config.get(
+                "use_branch_residual_correction",
+                False,
+            ),
+            branch_residual_correction_scale=model_config.get(
+                "branch_residual_correction_scale",
+                0.1,
+            ),
+            branch_residual_hidden_dim=model_config.get(
+                "branch_residual_hidden_dim",
+                32,
+            ),
             atlas_overrides=model_config.get("atlas_overrides"),
             use_node_summary=model_config.get("use_node_summary", False),
             node_summary_hidden_dim=model_config.get(

@@ -357,6 +357,12 @@ v7.2 v6.6 with confidence-weighted checkpoint probability ensemble:
 python run_abide.py --config configs/abide_proposal_v7_2.yaml
 ```
 
+v7.3 v6.6 with branch-logit residual correction:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v7_3.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

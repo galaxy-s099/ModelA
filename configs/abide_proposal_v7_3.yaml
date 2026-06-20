@@ -1,0 +1,41 @@
+data:
+  data_root: /kaggle/input/datasets/xingyushen666/abide-fc-three-atlas-new
+  atlases:
+    aal:
+      num_nodes: 116
+      fc_file: X_aal.npy
+    cc200:
+      num_nodes: 200
+      fc_file: X_cc200.npy
+    ho:
+      num_nodes: 111
+      fc_file: X_ho.npy
+
+train:
+  seeds: [0, 1, 2, 3, 4]
+  n_splits: 5
+  epochs: 80
+  batch_size: 32
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  use_best_val: false
+  checkpoint_ensemble: true
+  checkpoint_ensemble_start: 55
+  checkpoint_ensemble_interval: 5
+
+model:
+  model_name: smaf_edge_energy_v2_2
+  hidden_dim: 256
+  embedding_dim: 128
+  dropout: 0.5
+  temperature: 1.0
+  use_sample_gate: true
+  use_branch_residual_correction: true
+  branch_residual_correction_scale: 0.1
+  branch_residual_hidden_dim: 32
+
+loss:
+  lambda_branch: 0.2
+  lambda_reg: 0.1
+  margin: 0.1
+  regularization_mode: proposal_literal

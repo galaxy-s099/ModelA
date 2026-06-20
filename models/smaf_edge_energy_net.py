@@ -34,6 +34,9 @@ class SMAFEdgeEnergyNet(nn.Module):
         dual_energy_blend_alpha=0.5,
         use_shared_correction=False,
         shared_correction_scale=0.25,
+        use_branch_residual_correction=False,
+        branch_residual_correction_scale=0.1,
+        branch_residual_hidden_dim=32,
         atlas_overrides=None,
         use_node_summary=False,
         node_summary_hidden_dim=64,
@@ -53,6 +56,10 @@ class SMAFEdgeEnergyNet(nn.Module):
             raise ValueError("dual_energy_blend_alpha must be in [0, 1]")
         if shared_correction_scale < 0:
             raise ValueError("shared_correction_scale must be non-negative")
+        if branch_residual_correction_scale < 0:
+            raise ValueError(
+                "branch_residual_correction_scale must be non-negative"
+            )
 
         self.atlas_specs = OrderedDict(atlas_specs)
         self.atlas_names = list(self.atlas_specs.keys())
@@ -67,6 +74,9 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.dual_energy_blend_alpha = dual_energy_blend_alpha
         self.use_shared_correction = use_shared_correction
         self.shared_correction_scale = shared_correction_scale
+        self.use_branch_residual_correction = use_branch_residual_correction
+        self.branch_residual_correction_scale = branch_residual_correction_scale
+        self.branch_residual_hidden_dim = branch_residual_hidden_dim
         self.atlas_overrides = atlas_overrides or {}
         self.use_node_summary = use_node_summary
         self.node_summary_hidden_dim = node_summary_hidden_dim
@@ -187,6 +197,23 @@ class SMAFEdgeEnergyNet(nn.Module):
         else:
             self.shared_correction = None
 
+        if self.use_branch_residual_correction:
+            branch_residual_input_dim = self.num_atlases * 3
+            self.branch_residual_correction = nn.Sequential(
+                nn.LayerNorm(branch_residual_input_dim),
+                nn.Linear(
+                    branch_residual_input_dim,
+                    branch_residual_hidden_dim,
+                ),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(branch_residual_hidden_dim, 2),
+            )
+            nn.init.zeros_(self.branch_residual_correction[-1].weight)
+            nn.init.zeros_(self.branch_residual_correction[-1].bias)
+        else:
+            self.branch_residual_correction = None
+
     def compute_energy(self, logits):
         return -self.temperature * torch.logsumexp(
             logits / self.temperature,
@@ -230,6 +257,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         )
         residual_logits = None
         shared_correction_logits = None
+        branch_residual_correction_logits = None
         fusion_logits = weighted_logits
         if self.residual_classifier is not None:
             stacked_embeddings = torch.stack(graph_embeddings, dim=1)
@@ -256,12 +284,29 @@ class SMAFEdgeEnergyNet(nn.Module):
                 fusion_logits
                 + self.shared_correction_scale * shared_correction_logits
             )
+        if self.branch_residual_correction is not None:
+            branch_residual_input = torch.cat(
+                [
+                    stacked_logits.reshape(stacked_logits.shape[0], -1),
+                    atlas_weight,
+                ],
+                dim=-1,
+            )
+            branch_residual_correction_logits = self.branch_residual_correction(
+                branch_residual_input
+            )
+            fusion_logits = (
+                fusion_logits
+                + self.branch_residual_correction_scale
+                * branch_residual_correction_logits
+            )
 
         return {
             "fusion_logits": fusion_logits,
             "weighted_logits": weighted_logits,
             "residual_logits": residual_logits,
             "shared_correction_logits": shared_correction_logits,
+            "branch_residual_correction_logits": branch_residual_correction_logits,
             "branch_logits": stacked_logits,
             "energy": energy,
             "atlas_weight": atlas_weight,
