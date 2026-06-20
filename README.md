@@ -309,6 +309,12 @@ v6.4 v2.10 with fixed late-stage checkpoint averaging from epoch 40
 python run_abide.py --config configs/abide_proposal_v6_4.yaml
 ```
 
+v6.5 v6.4 with narrower late-stage checkpoint averaging from epoch 55:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v6_5.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
