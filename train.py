@@ -205,6 +205,13 @@ def update_averaged_state(averaged_state, model_state, count):
     return averaged_state, next_count
 
 
+def clone_state_dict(model):
+    return {
+        key: value.detach().clone()
+        for key, value in model.state_dict().items()
+    }
+
+
 def evaluate_model(model, dataloader, device, threshold=0.5):
     model.eval()
     probabilities = []
@@ -384,6 +391,10 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     checkpoint_average_interval = train_config.get("checkpoint_average_interval", 1)
     averaged_state = None
     averaged_state_count = 0
+    use_checkpoint_ensemble = train_config.get("checkpoint_ensemble", False)
+    checkpoint_ensemble_start = train_config.get("checkpoint_ensemble_start", 1)
+    checkpoint_ensemble_interval = train_config.get("checkpoint_ensemble_interval", 1)
+    ensemble_states = []
 
     for epoch in range(train_config["epochs"]):
         model.train()
@@ -457,6 +468,13 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                 averaged_state_count,
             )
 
+        if (
+            use_checkpoint_ensemble
+            and epoch_number >= checkpoint_ensemble_start
+            and (epoch_number - checkpoint_ensemble_start) % checkpoint_ensemble_interval == 0
+        ):
+            ensemble_states.append(clone_state_dict(model))
+
     if use_best_test:
         if best_test_metrics is None:
             raise RuntimeError("use_best_test=True but no test metrics were recorded.")
@@ -464,6 +482,28 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         best_test_metrics["Best_Test_Threshold"] = 0.5
         best_test_metrics[f"Best_Test_{test_select_metric}"] = best_test_score
         return best_test_metrics
+
+    if ensemble_states:
+        ensemble_probabilities = []
+        ensemble_labels = None
+        for ensemble_state in ensemble_states:
+            model.load_state_dict(ensemble_state)
+            _, probabilities, labels = evaluate_model(
+                model,
+                test_loader,
+                device,
+            )
+            ensemble_probabilities.append(probabilities)
+            if ensemble_labels is None:
+                ensemble_labels = labels
+
+        mean_probabilities = np.mean(np.stack(ensemble_probabilities, axis=0), axis=0)
+        predictions = (mean_probabilities >= 0.5).astype(int)
+        metrics = compute_metrics(ensemble_labels, mean_probabilities, predictions)
+        metrics["Checkpoint_Ensemble_Count"] = len(ensemble_states)
+        metrics["Checkpoint_Ensemble_Start"] = checkpoint_ensemble_start
+        metrics["Checkpoint_Ensemble_Interval"] = checkpoint_ensemble_interval
+        return metrics
 
     if best_state is not None:
         model.load_state_dict(best_state)
