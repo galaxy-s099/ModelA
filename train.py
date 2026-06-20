@@ -395,6 +395,10 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     use_checkpoint_ensemble = train_config.get("checkpoint_ensemble", False)
     checkpoint_ensemble_start = train_config.get("checkpoint_ensemble_start", 1)
     checkpoint_ensemble_interval = train_config.get("checkpoint_ensemble_interval", 1)
+    checkpoint_ensemble_weighting = train_config.get(
+        "checkpoint_ensemble_weighting",
+        "uniform",
+    )
     ensemble_states = []
 
     for epoch in range(train_config["epochs"]):
@@ -500,12 +504,29 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             if ensemble_labels is None:
                 ensemble_labels = labels
 
-        mean_probabilities = np.mean(np.stack(ensemble_probabilities, axis=0), axis=0)
+        stacked_probabilities = np.stack(ensemble_probabilities, axis=0)
+        if checkpoint_ensemble_weighting == "confidence":
+            weights = np.abs(stacked_probabilities - 0.5) * 2.0
+            weight_sum = weights.sum(axis=0)
+            mean_probabilities = np.divide(
+                (weights * stacked_probabilities).sum(axis=0),
+                weight_sum,
+                out=stacked_probabilities.mean(axis=0),
+                where=weight_sum > 1e-12,
+            )
+        elif checkpoint_ensemble_weighting == "uniform":
+            mean_probabilities = stacked_probabilities.mean(axis=0)
+        else:
+            raise ValueError(
+                "Unsupported checkpoint_ensemble_weighting: "
+                f"{checkpoint_ensemble_weighting}. Expected uniform or confidence."
+            )
         predictions = (mean_probabilities >= decision_threshold).astype(int)
         metrics = compute_metrics(ensemble_labels, mean_probabilities, predictions)
         metrics["Checkpoint_Ensemble_Count"] = len(ensemble_states)
         metrics["Checkpoint_Ensemble_Start"] = checkpoint_ensemble_start
         metrics["Checkpoint_Ensemble_Interval"] = checkpoint_ensemble_interval
+        metrics["Checkpoint_Ensemble_Weighting"] = checkpoint_ensemble_weighting
         metrics["Decision_Threshold"] = decision_threshold
         return metrics
 
