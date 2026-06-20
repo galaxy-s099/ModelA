@@ -333,6 +333,12 @@ v6.8 v6.6 with denser late checkpoint probability ensemble from epoch 60:
 python run_abide.py --config configs/abide_proposal_v6_8.yaml
 ```
 
+v6.9 v6.6 with intermediate checkpoint probability ensemble from epoch 50:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v6_9.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
