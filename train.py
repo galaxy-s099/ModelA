@@ -184,6 +184,27 @@ def add_probability_metrics(metrics, prefix, labels, probabilities, threshold):
         metrics[f"{prefix}_{key}"] = value
 
 
+def update_averaged_state(averaged_state, model_state, count):
+    if averaged_state is None:
+        return {
+            key: value.detach().clone()
+            for key, value in model_state.items()
+        }, 1
+
+    next_count = count + 1
+    for key, value in model_state.items():
+        value = value.detach()
+        if torch.is_floating_point(value):
+            averaged_state[key].mul_(count / next_count).add_(
+                value,
+                alpha=1.0 / next_count,
+            )
+        else:
+            averaged_state[key] = value.clone()
+
+    return averaged_state, next_count
+
+
 def evaluate_model(model, dataloader, device, threshold=0.5):
     model.eval()
     probabilities = []
@@ -358,6 +379,11 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         "search_val_threshold",
         val_select_metric == "ACC",
     )
+    use_checkpoint_average = train_config.get("checkpoint_average", False)
+    checkpoint_average_start = train_config.get("checkpoint_average_start", 1)
+    checkpoint_average_interval = train_config.get("checkpoint_average_interval", 1)
+    averaged_state = None
+    averaged_state_count = 0
 
     for epoch in range(train_config["epochs"]):
         model.train()
@@ -419,6 +445,18 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                 best_test_metrics = dict(test_metrics)
                 best_test_epoch = epoch
 
+        epoch_number = epoch + 1
+        if (
+            use_checkpoint_average
+            and epoch_number >= checkpoint_average_start
+            and (epoch_number - checkpoint_average_start) % checkpoint_average_interval == 0
+        ):
+            averaged_state, averaged_state_count = update_averaged_state(
+                averaged_state,
+                model.state_dict(),
+                averaged_state_count,
+            )
+
     if use_best_test:
         if best_test_metrics is None:
             raise RuntimeError("use_best_test=True but no test metrics were recorded.")
@@ -429,6 +467,8 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
 
     if best_state is not None:
         model.load_state_dict(best_state)
+    elif averaged_state is not None:
+        model.load_state_dict(averaged_state)
 
     if train_eval_loader is not None and best_state is None:
         _, train_probabilities, train_labels = evaluate_model(
@@ -456,6 +496,10 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         if best_val_metrics is not None:
             for metric_name in ["ACC", "AUC", "SEN", "SPE", "F1"]:
                 metrics[f"Val_{metric_name}"] = best_val_metrics[metric_name]
+    elif averaged_state is not None:
+        metrics["Checkpoint_Avg_Count"] = averaged_state_count
+        metrics["Checkpoint_Avg_Start"] = checkpoint_average_start
+        metrics["Checkpoint_Avg_Interval"] = checkpoint_average_interval
     elif train_eval_loader is not None:
         metrics["Train_Threshold"] = best_threshold
         metrics["Train_Threshold_ACC"] = best_val_score

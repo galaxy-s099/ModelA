@@ -302,6 +302,13 @@ v6.3 v2.10 with test-best oracle checkpoint selection by Test ACC
 python run_abide.py --config configs/abide_proposal_v6_3.yaml
 ```
 
+v6.4 v2.10 with fixed late-stage checkpoint averaging from epoch 40
+(no validation split and no test-best selection):
+
+```bash
+python run_abide.py --config configs/abide_proposal_v6_4.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
