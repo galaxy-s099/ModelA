@@ -369,7 +369,8 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     best_state = None
     best_val_score = -1.0
     best_val_metrics = None
-    best_threshold = 0.5
+    decision_threshold = train_config.get("decision_threshold", 0.5)
+    best_threshold = decision_threshold
     best_epoch = -1
     best_test_score = -1.0
     best_test_metrics = None
@@ -411,8 +412,9 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                 model,
                 val_loader,
                 device,
+                threshold=decision_threshold,
             )
-            threshold = 0.5
+            threshold = decision_threshold
             score_metrics = val_metrics
             if search_val_threshold:
                 threshold, _ = search_best_threshold(
@@ -492,17 +494,19 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                 model,
                 test_loader,
                 device,
+                threshold=decision_threshold,
             )
             ensemble_probabilities.append(probabilities)
             if ensemble_labels is None:
                 ensemble_labels = labels
 
         mean_probabilities = np.mean(np.stack(ensemble_probabilities, axis=0), axis=0)
-        predictions = (mean_probabilities >= 0.5).astype(int)
+        predictions = (mean_probabilities >= decision_threshold).astype(int)
         metrics = compute_metrics(ensemble_labels, mean_probabilities, predictions)
         metrics["Checkpoint_Ensemble_Count"] = len(ensemble_states)
         metrics["Checkpoint_Ensemble_Start"] = checkpoint_ensemble_start
         metrics["Checkpoint_Ensemble_Interval"] = checkpoint_ensemble_interval
+        metrics["Decision_Threshold"] = decision_threshold
         return metrics
 
     if best_state is not None:
@@ -540,6 +544,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         metrics["Checkpoint_Avg_Count"] = averaged_state_count
         metrics["Checkpoint_Avg_Start"] = checkpoint_average_start
         metrics["Checkpoint_Avg_Interval"] = checkpoint_average_interval
+        metrics["Decision_Threshold"] = best_threshold
     elif train_eval_loader is not None:
         metrics["Train_Threshold"] = best_threshold
         metrics["Train_Threshold_ACC"] = best_val_score

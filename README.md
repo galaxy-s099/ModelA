@@ -339,6 +339,12 @@ v6.9 v6.6 with intermediate checkpoint probability ensemble from epoch 50:
 python run_abide.py --config configs/abide_proposal_v6_9.yaml
 ```
 
+v7.0 v6.6 with a fixed decision threshold of 0.47:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v7_0.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
