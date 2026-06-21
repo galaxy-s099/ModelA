@@ -496,7 +496,8 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     if use_best_test:
         if best_test_metrics is None:
             raise RuntimeError("use_best_test=True but no test metrics were recorded.")
-        best_test_metrics["Best_Test_Epoch"] = best_test_epoch
+        best_test_metrics["Best_Test_Epoch_Index"] = best_test_epoch
+        best_test_metrics["Best_Test_Epoch"] = best_test_epoch + 1
         best_test_metrics["Best_Test_Threshold"] = 0.5
         best_test_metrics[f"Best_Test_{test_select_metric}"] = best_test_score
         return best_test_metrics
@@ -615,6 +616,15 @@ def run_repeated_cv(config):
             )
             all_results.append(metrics)
 
+            extra_parts = []
+            if "Best_Test_Epoch" in metrics:
+                extra_parts.append(
+                    f"BestTestEpoch={int(metrics['Best_Test_Epoch'])}"
+                )
+            extra_text = ""
+            if extra_parts:
+                extra_text = ", " + ", ".join(extra_parts)
+
             print(
                 f"Seed {seed} | Fold {fold}: "
                 f"ACC={metrics['ACC']:.4f}, "
@@ -622,6 +632,7 @@ def run_repeated_cv(config):
                 f"SEN={metrics['SEN']:.4f}, "
                 f"SPE={metrics['SPE']:.4f}, "
                 f"F1={metrics['F1']:.4f}"
+                f"{extra_text}"
             )
 
     summary = summarize_results(all_results)

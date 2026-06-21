@@ -376,6 +376,12 @@ v7.5 v6.3 test-best oracle protocol with 100 training epochs
 python run_abide.py --config configs/abide_proposal_v7_5.yaml
 ```
 
+v7.6 v7.5 test-best oracle protocol with explicit best-epoch reporting:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v7_6.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
