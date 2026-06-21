@@ -644,6 +644,34 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         return best_test_metrics
 
     if ensemble_states:
+        ensemble_threshold = decision_threshold
+        train_threshold_acc = None
+        if train_eval_loader is not None:
+            train_ensemble_probabilities = []
+            train_ensemble_labels = None
+            for ensemble_state in ensemble_states:
+                model.load_state_dict(ensemble_state)
+                _, probabilities, labels = evaluate_model(
+                    model,
+                    train_eval_loader,
+                    device,
+                    threshold=decision_threshold,
+                )
+                train_ensemble_probabilities.append(probabilities)
+                if train_ensemble_labels is None:
+                    train_ensemble_labels = labels
+
+            _, train_mean_probabilities = combine_probability_ensemble(
+                train_ensemble_probabilities,
+                train_ensemble_labels,
+                decision_threshold,
+                checkpoint_ensemble_weighting,
+            )
+            ensemble_threshold, train_threshold_acc = search_best_threshold(
+                train_ensemble_labels,
+                train_mean_probabilities,
+            )
+
         ensemble_probabilities = []
         ensemble_labels = None
         for ensemble_state in ensemble_states:
@@ -661,7 +689,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         metrics, _ = combine_probability_ensemble(
             ensemble_probabilities,
             ensemble_labels,
-            decision_threshold,
+            ensemble_threshold,
             checkpoint_ensemble_weighting,
         )
         metrics["Checkpoint_Ensemble_Count"] = len(ensemble_states)
@@ -674,7 +702,10 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             metrics["Checkpoint_Ensemble_Start"] = checkpoint_ensemble_start
             metrics["Checkpoint_Ensemble_Interval"] = checkpoint_ensemble_interval
         metrics["Checkpoint_Ensemble_Weighting"] = checkpoint_ensemble_weighting
-        metrics["Decision_Threshold"] = decision_threshold
+        metrics["Decision_Threshold"] = ensemble_threshold
+        if train_threshold_acc is not None:
+            metrics["Train_Threshold"] = ensemble_threshold
+            metrics["Train_Threshold_ACC"] = train_threshold_acc
         return metrics
 
     if best_state is not None:

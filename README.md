@@ -406,6 +406,12 @@ v8.1 v6.6 with atlas consensus-gated fusion:
 python run_abide.py --config configs/abide_proposal_v8_1.yaml
 ```
 
+v8.2 v6.6 with train-set threshold calibration for checkpoint ensembles:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v8_2.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
