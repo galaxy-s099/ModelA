@@ -369,6 +369,13 @@ v7.4 v6.6 with 100 training epochs to align the comparison setting:
 python run_abide.py --config configs/abide_proposal_v7_4.yaml
 ```
 
+v7.5 v6.3 test-best oracle protocol with 100 training epochs
+(comparison-protocol diagnostic only):
+
+```bash
+python run_abide.py --config configs/abide_proposal_v7_5.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
