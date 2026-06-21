@@ -22,9 +22,24 @@ def main():
     assert 0.46 <= threshold <= 0.55
     assert acc == 1.0
 
+    tied_threshold, tied_score = search_best_threshold(
+        labels,
+        probabilities,
+        threshold_min=0.45,
+        threshold_max=0.55,
+        threshold_step=0.01,
+        score_metric="BALANCED_ACC",
+        tie_break="closest_to_target",
+        tie_break_target=0.5,
+    )
+    assert 0.49 <= tied_threshold <= 0.51
+    assert tied_score == 1.0
+
     print("Threshold search test passed.")
     print("threshold:", threshold)
     print("acc:", acc)
+    print("tied threshold:", tied_threshold)
+    print("tied score:", tied_score)
 
 
 if __name__ == "__main__":

@@ -412,6 +412,12 @@ v8.2 v6.6 with train-set threshold calibration for checkpoint ensembles:
 python run_abide.py --config configs/abide_proposal_v8_2.yaml
 ```
 
+v8.3 v8.2 with conservative train threshold calibration:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v8_3.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

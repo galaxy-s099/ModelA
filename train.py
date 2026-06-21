@@ -151,18 +151,65 @@ def build_loss(config):
     )
 
 
-def search_best_threshold(y_true, y_prob):
+def compute_threshold_score(y_true, y_pred, metric="ACC"):
+    metric = normalize_metric_name(metric)
+    if metric == "ACC":
+        return float((y_pred == y_true).mean())
+    if metric in {"BALANCED_ACC", "BAC"}:
+        positive_mask = y_true == 1
+        negative_mask = y_true == 0
+        sensitivity = (
+            (y_pred[positive_mask] == 1).mean()
+            if positive_mask.any()
+            else 0.0
+        )
+        specificity = (
+            (y_pred[negative_mask] == 0).mean()
+            if negative_mask.any()
+            else 0.0
+        )
+        return float((sensitivity + specificity) / 2.0)
+    raise ValueError(
+        f"Unsupported threshold score metric: {metric}. "
+        "Expected ACC or BALANCED_ACC."
+    )
+
+
+def search_best_threshold(
+    y_true,
+    y_prob,
+    threshold_min=0.30,
+    threshold_max=0.70,
+    threshold_step=0.01,
+    score_metric="ACC",
+    tie_break="first",
+    tie_break_target=0.5,
+):
     best_threshold = 0.5
-    best_acc = -1.0
+    best_score = -1.0
+    tie_break = str(tie_break).lower()
 
-    for threshold in np.arange(0.30, 0.71, 0.01):
+    thresholds = np.arange(
+        threshold_min,
+        threshold_max + threshold_step / 2.0,
+        threshold_step,
+    )
+    for threshold in thresholds:
         y_pred = (y_prob >= threshold).astype(int)
-        acc = (y_pred == y_true).mean()
-        if acc > best_acc:
+        score = compute_threshold_score(y_true, y_pred, score_metric)
+        is_better = score > best_score
+        if (
+            tie_break == "closest_to_target"
+            and np.isclose(score, best_score)
+            and abs(threshold - tie_break_target)
+            < abs(best_threshold - tie_break_target)
+        ):
+            is_better = True
+        if is_better:
             best_threshold = threshold
-            best_acc = acc
+            best_score = score
 
-    return float(best_threshold), float(best_acc)
+    return float(best_threshold), float(best_score)
 
 
 def normalize_metric_name(metric_name):
@@ -433,6 +480,15 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         "search_val_threshold",
         val_select_metric == "ACC",
     )
+    threshold_search_min = train_config.get("threshold_search_min", 0.30)
+    threshold_search_max = train_config.get("threshold_search_max", 0.70)
+    threshold_search_step = train_config.get("threshold_search_step", 0.01)
+    threshold_score_metric = train_config.get("threshold_score_metric", "ACC")
+    threshold_tie_break = train_config.get("threshold_tie_break", "first")
+    threshold_tie_break_target = train_config.get(
+        "threshold_tie_break_target",
+        decision_threshold,
+    )
     use_checkpoint_average = train_config.get("checkpoint_average", False)
     checkpoint_average_start = train_config.get("checkpoint_average_start", 1)
     checkpoint_average_interval = train_config.get("checkpoint_average_interval", 1)
@@ -578,6 +634,12 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                 threshold, _ = search_best_threshold(
                     val_labels,
                     val_probabilities,
+                    threshold_min=threshold_search_min,
+                    threshold_max=threshold_search_max,
+                    threshold_step=threshold_search_step,
+                    score_metric=threshold_score_metric,
+                    tie_break=threshold_tie_break,
+                    tie_break_target=threshold_tie_break_target,
                 )
                 threshold_predictions = (
                     val_probabilities >= threshold
@@ -645,7 +707,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
 
     if ensemble_states:
         ensemble_threshold = decision_threshold
-        train_threshold_acc = None
+        train_threshold_score = None
         if train_eval_loader is not None:
             train_ensemble_probabilities = []
             train_ensemble_labels = None
@@ -667,9 +729,15 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                 decision_threshold,
                 checkpoint_ensemble_weighting,
             )
-            ensemble_threshold, train_threshold_acc = search_best_threshold(
+            ensemble_threshold, train_threshold_score = search_best_threshold(
                 train_ensemble_labels,
                 train_mean_probabilities,
+                threshold_min=threshold_search_min,
+                threshold_max=threshold_search_max,
+                threshold_step=threshold_search_step,
+                score_metric=threshold_score_metric,
+                tie_break=threshold_tie_break,
+                tie_break_target=threshold_tie_break_target,
             )
 
         ensemble_probabilities = []
@@ -703,9 +771,14 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             metrics["Checkpoint_Ensemble_Interval"] = checkpoint_ensemble_interval
         metrics["Checkpoint_Ensemble_Weighting"] = checkpoint_ensemble_weighting
         metrics["Decision_Threshold"] = ensemble_threshold
-        if train_threshold_acc is not None:
+        if train_threshold_score is not None:
             metrics["Train_Threshold"] = ensemble_threshold
-            metrics["Train_Threshold_ACC"] = train_threshold_acc
+            metrics["Train_Threshold_Score"] = train_threshold_score
+            metrics["Train_Threshold_Score_Metric"] = normalize_metric_name(
+                threshold_score_metric
+            )
+            if normalize_metric_name(threshold_score_metric) == "ACC":
+                metrics["Train_Threshold_ACC"] = train_threshold_score
         return metrics
 
     if best_state is not None:
@@ -722,6 +795,12 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         threshold, train_acc = search_best_threshold(
             train_labels,
             train_probabilities,
+            threshold_min=threshold_search_min,
+            threshold_max=threshold_search_max,
+            threshold_step=threshold_search_step,
+            score_metric=threshold_score_metric,
+            tie_break=threshold_tie_break,
+            tie_break_target=threshold_tie_break_target,
         )
         best_threshold = threshold
         best_val_score = train_acc
@@ -746,7 +825,12 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         metrics["Decision_Threshold"] = best_threshold
     elif train_eval_loader is not None:
         metrics["Train_Threshold"] = best_threshold
-        metrics["Train_Threshold_ACC"] = best_val_score
+        metrics["Train_Threshold_Score"] = best_val_score
+        metrics["Train_Threshold_Score_Metric"] = normalize_metric_name(
+            threshold_score_metric
+        )
+        if normalize_metric_name(threshold_score_metric) == "ACC":
+            metrics["Train_Threshold_ACC"] = best_val_score
 
     return metrics
 
