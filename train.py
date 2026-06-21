@@ -407,6 +407,12 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     use_checkpoint_ensemble = train_config.get("checkpoint_ensemble", False)
     checkpoint_ensemble_start = train_config.get("checkpoint_ensemble_start", 1)
     checkpoint_ensemble_interval = train_config.get("checkpoint_ensemble_interval", 1)
+    checkpoint_ensemble_epochs = train_config.get("checkpoint_ensemble_epochs")
+    if checkpoint_ensemble_epochs is not None:
+        checkpoint_ensemble_epochs = {
+            int(epoch)
+            for epoch in checkpoint_ensemble_epochs
+        }
     checkpoint_ensemble_weighting = train_config.get(
         "checkpoint_ensemble_weighting",
         "uniform",
@@ -486,11 +492,18 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                 averaged_state_count,
             )
 
-        if (
-            use_checkpoint_ensemble
-            and epoch_number >= checkpoint_ensemble_start
-            and (epoch_number - checkpoint_ensemble_start) % checkpoint_ensemble_interval == 0
-        ):
+        should_collect_ensemble = False
+        if use_checkpoint_ensemble and checkpoint_ensemble_epochs is not None:
+            should_collect_ensemble = epoch_number in checkpoint_ensemble_epochs
+        elif use_checkpoint_ensemble:
+            should_collect_ensemble = (
+                epoch_number >= checkpoint_ensemble_start
+                and (epoch_number - checkpoint_ensemble_start)
+                % checkpoint_ensemble_interval
+                == 0
+            )
+
+        if should_collect_ensemble:
             ensemble_states.append(clone_state_dict(model))
 
     if use_best_test:
@@ -537,8 +550,14 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         predictions = (mean_probabilities >= decision_threshold).astype(int)
         metrics = compute_metrics(ensemble_labels, mean_probabilities, predictions)
         metrics["Checkpoint_Ensemble_Count"] = len(ensemble_states)
-        metrics["Checkpoint_Ensemble_Start"] = checkpoint_ensemble_start
-        metrics["Checkpoint_Ensemble_Interval"] = checkpoint_ensemble_interval
+        if checkpoint_ensemble_epochs is not None:
+            metrics["Checkpoint_Ensemble_Epochs"] = ",".join(
+                str(epoch)
+                for epoch in sorted(checkpoint_ensemble_epochs)
+            )
+        else:
+            metrics["Checkpoint_Ensemble_Start"] = checkpoint_ensemble_start
+            metrics["Checkpoint_Ensemble_Interval"] = checkpoint_ensemble_interval
         metrics["Checkpoint_Ensemble_Weighting"] = checkpoint_ensemble_weighting
         metrics["Decision_Threshold"] = decision_threshold
         return metrics
