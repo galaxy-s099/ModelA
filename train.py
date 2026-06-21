@@ -112,6 +112,7 @@ def build_model(config):
                 "edge_residual_scale",
                 0.25,
             ),
+            edge_dropout=model_config.get("edge_dropout", 0.0),
         )
 
     return SMAFProposalNet(

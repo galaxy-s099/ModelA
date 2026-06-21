@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 def fc_to_signed_edge_vector(fc):
@@ -64,16 +65,20 @@ class EdgeBranchEncoder(nn.Module):
         use_edge_residual=False,
         edge_residual_hidden_dim=64,
         edge_residual_scale=0.25,
+        edge_dropout=0.0,
     ):
         super().__init__()
         if use_node_summary and num_nodes is None:
             raise ValueError("num_nodes is required when use_node_summary is true")
         if edge_residual_scale < 0:
             raise ValueError("edge_residual_scale must be non-negative")
+        if not 0.0 <= edge_dropout < 1.0:
+            raise ValueError("edge_dropout must be in [0, 1)")
 
         self.use_node_summary = use_node_summary
         self.use_edge_residual = use_edge_residual
         self.edge_residual_scale = edge_residual_scale
+        self.edge_dropout = edge_dropout
         self.edge_encoder = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
@@ -120,6 +125,12 @@ class EdgeBranchEncoder(nn.Module):
 
     def forward(self, fc):
         edge_vector = fc_to_signed_edge_vector(fc)
+        if self.edge_dropout > 0:
+            edge_vector = F.dropout(
+                edge_vector,
+                p=self.edge_dropout,
+                training=self.training,
+            )
         edge_embedding = self.edge_encoder(edge_vector)
         if self.edge_residual is not None:
             edge_embedding = (

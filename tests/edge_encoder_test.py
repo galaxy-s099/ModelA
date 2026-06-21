@@ -68,6 +68,38 @@ def main():
     assert torch.isfinite(residual_encoder.edge_residual[-1].weight.grad).all()
     assert residual_encoder.edge_residual[-1].weight.grad.abs().sum() > 0
 
+    zero_dropout_encoder = EdgeBranchEncoder(
+        input_dim=6,
+        hidden_dim=8,
+        embedding_dim=5,
+        dropout=0.1,
+        edge_dropout=0.0,
+    )
+    zero_dropout_encoder.load_state_dict(baseline_encoder.state_dict())
+    baseline_encoder.eval()
+    zero_dropout_encoder.eval()
+    with torch.no_grad():
+        baseline_embedding = baseline_encoder(batch)
+        zero_dropout_embedding = zero_dropout_encoder(batch)
+    assert torch.allclose(
+        baseline_embedding,
+        zero_dropout_embedding,
+        atol=1e-6,
+    )
+
+    edge_dropout_encoder = EdgeBranchEncoder(
+        input_dim=6,
+        hidden_dim=8,
+        embedding_dim=5,
+        dropout=0.1,
+        edge_dropout=0.2,
+    )
+    edge_dropout_encoder.train()
+    dropout_embedding = edge_dropout_encoder(batch)
+    dropout_embedding.sum().backward()
+    assert dropout_embedding.shape == (4, 5)
+    assert torch.isfinite(dropout_embedding).all()
+
     print("Edge encoder test passed.")
     print("Node summary:", tuple(summary.shape))
     print("Embedding:", tuple(embedding.shape))
