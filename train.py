@@ -322,6 +322,35 @@ def evaluate_model(model, dataloader, device, threshold=0.5):
     return metrics, probabilities, labels
 
 
+def combine_probability_ensemble(
+    ensemble_probabilities,
+    labels,
+    decision_threshold,
+    weighting="uniform",
+):
+    stacked_probabilities = np.stack(ensemble_probabilities, axis=0)
+    if weighting == "confidence":
+        weights = np.abs(stacked_probabilities - 0.5) * 2.0
+        weight_sum = weights.sum(axis=0)
+        mean_probabilities = np.divide(
+            (weights * stacked_probabilities).sum(axis=0),
+            weight_sum,
+            out=stacked_probabilities.mean(axis=0),
+            where=weight_sum > 1e-12,
+        )
+    elif weighting == "uniform":
+        mean_probabilities = stacked_probabilities.mean(axis=0)
+    else:
+        raise ValueError(
+            "Unsupported checkpoint_ensemble_weighting: "
+            f"{weighting}. Expected uniform or confidence."
+        )
+
+    predictions = (mean_probabilities >= decision_threshold).astype(int)
+    metrics = compute_metrics(labels, mean_probabilities, predictions)
+    return metrics, mean_probabilities
+
+
 def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     set_seed(seed)
     labels = load_labels(data_root)
@@ -418,6 +447,108 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         "uniform",
     )
     ensemble_states = []
+    init_ensemble_seeds = train_config.get("init_ensemble_seeds")
+
+    def should_collect_ensemble_checkpoint(epoch_number):
+        if checkpoint_ensemble_epochs is not None:
+            return epoch_number in checkpoint_ensemble_epochs
+        return (
+            epoch_number >= checkpoint_ensemble_start
+            and (epoch_number - checkpoint_ensemble_start)
+            % checkpoint_ensemble_interval
+            == 0
+        )
+
+    if init_ensemble_seeds:
+        if use_best_val or use_best_test or use_checkpoint_average:
+            raise ValueError(
+                "init_ensemble_seeds is only supported without best-val, "
+                "best-test, or checkpoint averaging modes."
+            )
+        if not use_checkpoint_ensemble:
+            raise ValueError(
+                "init_ensemble_seeds requires checkpoint_ensemble=True."
+            )
+
+        init_probabilities = []
+        init_labels = None
+        for init_seed in init_ensemble_seeds:
+            set_seed(seed * 1000 + int(init_seed))
+            run_model = build_model(config).to(device)
+            run_criterion = build_loss(config)
+            run_optimizer = torch.optim.Adam(
+                run_model.parameters(),
+                lr=train_config["lr"],
+                weight_decay=train_config["weight_decay"],
+            )
+            run_ensemble_states = []
+
+            for epoch in range(train_config["epochs"]):
+                run_model.train()
+                for batch in train_loader:
+                    batch = move_batch_to_device(batch, device)
+                    run_optimizer.zero_grad()
+                    output = run_model(batch)
+                    loss_details = run_criterion(output, batch["label"])
+                    loss_details["loss"].backward()
+                    run_optimizer.step()
+
+                epoch_number = epoch + 1
+                if should_collect_ensemble_checkpoint(epoch_number):
+                    run_ensemble_states.append(clone_state_dict(run_model))
+
+            if not run_ensemble_states:
+                raise RuntimeError(
+                    "init ensemble produced no checkpoint ensemble states."
+                )
+
+            run_probabilities = []
+            run_labels = None
+            for ensemble_state in run_ensemble_states:
+                run_model.load_state_dict(ensemble_state)
+                _, probabilities, labels = evaluate_model(
+                    run_model,
+                    test_loader,
+                    device,
+                    threshold=decision_threshold,
+                )
+                run_probabilities.append(probabilities)
+                if run_labels is None:
+                    run_labels = labels
+
+            _, run_mean_probabilities = combine_probability_ensemble(
+                run_probabilities,
+                run_labels,
+                decision_threshold,
+                checkpoint_ensemble_weighting,
+            )
+            init_probabilities.append(run_mean_probabilities)
+            if init_labels is None:
+                init_labels = run_labels
+
+        metrics, _ = combine_probability_ensemble(
+            init_probabilities,
+            init_labels,
+            decision_threshold,
+            "uniform",
+        )
+        metrics["Init_Ensemble_Count"] = len(init_ensemble_seeds)
+        metrics["Init_Ensemble_Seeds"] = ",".join(
+            str(init_seed)
+            for init_seed in init_ensemble_seeds
+        )
+        metrics["Checkpoint_Ensemble_Count"] = len(run_ensemble_states)
+        if checkpoint_ensemble_epochs is not None:
+            metrics["Checkpoint_Ensemble_Epochs"] = ",".join(
+                str(epoch)
+                for epoch in sorted(checkpoint_ensemble_epochs)
+            )
+        else:
+            metrics["Checkpoint_Ensemble_Start"] = checkpoint_ensemble_start
+            metrics["Checkpoint_Ensemble_Interval"] = checkpoint_ensemble_interval
+        metrics["Checkpoint_Ensemble_Weighting"] = checkpoint_ensemble_weighting
+        metrics["Decision_Threshold"] = decision_threshold
+        return metrics
 
     for epoch in range(train_config["epochs"]):
         model.train()
@@ -492,18 +623,10 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                 averaged_state_count,
             )
 
-        should_collect_ensemble = False
-        if use_checkpoint_ensemble and checkpoint_ensemble_epochs is not None:
-            should_collect_ensemble = epoch_number in checkpoint_ensemble_epochs
-        elif use_checkpoint_ensemble:
-            should_collect_ensemble = (
-                epoch_number >= checkpoint_ensemble_start
-                and (epoch_number - checkpoint_ensemble_start)
-                % checkpoint_ensemble_interval
-                == 0
-            )
-
-        if should_collect_ensemble:
+        if (
+            use_checkpoint_ensemble
+            and should_collect_ensemble_checkpoint(epoch_number)
+        ):
             ensemble_states.append(clone_state_dict(model))
 
     if use_best_test:
@@ -530,25 +653,12 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             if ensemble_labels is None:
                 ensemble_labels = labels
 
-        stacked_probabilities = np.stack(ensemble_probabilities, axis=0)
-        if checkpoint_ensemble_weighting == "confidence":
-            weights = np.abs(stacked_probabilities - 0.5) * 2.0
-            weight_sum = weights.sum(axis=0)
-            mean_probabilities = np.divide(
-                (weights * stacked_probabilities).sum(axis=0),
-                weight_sum,
-                out=stacked_probabilities.mean(axis=0),
-                where=weight_sum > 1e-12,
-            )
-        elif checkpoint_ensemble_weighting == "uniform":
-            mean_probabilities = stacked_probabilities.mean(axis=0)
-        else:
-            raise ValueError(
-                "Unsupported checkpoint_ensemble_weighting: "
-                f"{checkpoint_ensemble_weighting}. Expected uniform or confidence."
-            )
-        predictions = (mean_probabilities >= decision_threshold).astype(int)
-        metrics = compute_metrics(ensemble_labels, mean_probabilities, predictions)
+        metrics, _ = combine_probability_ensemble(
+            ensemble_probabilities,
+            ensemble_labels,
+            decision_threshold,
+            checkpoint_ensemble_weighting,
+        )
         metrics["Checkpoint_Ensemble_Count"] = len(ensemble_states)
         if checkpoint_ensemble_epochs is not None:
             metrics["Checkpoint_Ensemble_Epochs"] = ",".join(

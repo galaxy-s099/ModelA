@@ -394,6 +394,12 @@ v7.8 v7.7 with a fixed decision threshold of 0.52:
 python run_abide.py --config configs/abide_proposal_v7_8.yaml
 ```
 
+v8.0 v6.6 with 3-run repeated initialization probability ensemble:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v8_0.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
