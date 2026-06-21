@@ -37,6 +37,8 @@ class SMAFEdgeEnergyNet(nn.Module):
         use_branch_residual_correction=False,
         branch_residual_correction_scale=0.1,
         branch_residual_hidden_dim=32,
+        use_consensus_gate=False,
+        consensus_gate_scale=0.5,
         atlas_overrides=None,
         use_node_summary=False,
         node_summary_hidden_dim=64,
@@ -60,6 +62,8 @@ class SMAFEdgeEnergyNet(nn.Module):
             raise ValueError(
                 "branch_residual_correction_scale must be non-negative"
             )
+        if consensus_gate_scale < 0:
+            raise ValueError("consensus_gate_scale must be non-negative")
 
         self.atlas_specs = OrderedDict(atlas_specs)
         self.atlas_names = list(self.atlas_specs.keys())
@@ -77,6 +81,8 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.use_branch_residual_correction = use_branch_residual_correction
         self.branch_residual_correction_scale = branch_residual_correction_scale
         self.branch_residual_hidden_dim = branch_residual_hidden_dim
+        self.use_consensus_gate = use_consensus_gate
+        self.consensus_gate_scale = consensus_gate_scale
         self.atlas_overrides = atlas_overrides or {}
         self.use_node_summary = use_node_summary
         self.node_summary_hidden_dim = node_summary_hidden_dim
@@ -235,6 +241,20 @@ class SMAFEdgeEnergyNet(nn.Module):
         energy_score = -energy
         if self.atlas_prior is not None:
             energy_score = energy_score + self.atlas_prior.unsqueeze(0)
+        consensus_disagreement = None
+        if self.use_consensus_gate and self.consensus_gate_scale > 0:
+            branch_probabilities = torch.softmax(stacked_logits, dim=-1)[..., 1]
+            consensus_probability = branch_probabilities.mean(
+                dim=1,
+                keepdim=True,
+            )
+            consensus_disagreement = torch.abs(
+                branch_probabilities - consensus_probability
+            )
+            energy_score = (
+                energy_score
+                - self.consensus_gate_scale * consensus_disagreement
+            )
         base_energy_score = energy_score
         sample_gate_logits = None
         if self.sample_gate is not None:
@@ -312,6 +332,7 @@ class SMAFEdgeEnergyNet(nn.Module):
             "atlas_weight": atlas_weight,
             "base_atlas_weight": base_atlas_weight,
             "gated_atlas_weight": gated_atlas_weight,
+            "consensus_disagreement": consensus_disagreement,
             "atlas_prior": self.atlas_prior,
             "sample_gate_logits": sample_gate_logits,
             "branch_details": branch_details,

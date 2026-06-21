@@ -400,6 +400,12 @@ v8.0 v6.6 with 3-run repeated initialization probability ensemble:
 python run_abide.py --config configs/abide_proposal_v8_0.yaml
 ```
 
+v8.1 v6.6 with atlas consensus-gated fusion:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v8_1.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

@@ -88,6 +88,11 @@ def build_model(config):
                 "branch_residual_hidden_dim",
                 32,
             ),
+            use_consensus_gate=model_config.get("use_consensus_gate", False),
+            consensus_gate_scale=model_config.get(
+                "consensus_gate_scale",
+                0.5,
+            ),
             atlas_overrides=model_config.get("atlas_overrides"),
             use_node_summary=model_config.get("use_node_summary", False),
             node_summary_hidden_dim=model_config.get(

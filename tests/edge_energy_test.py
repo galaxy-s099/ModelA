@@ -280,6 +280,54 @@ def main():
         > 0
     )
 
+    zero_consensus_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_sample_gate=True,
+        use_consensus_gate=True,
+        consensus_gate_scale=0.0,
+    )
+    zero_consensus_model.load_state_dict(sample_gate_model.state_dict(), strict=False)
+    sample_gate_model.eval()
+    zero_consensus_model.eval()
+    with torch.no_grad():
+        sample_gate_baseline = sample_gate_model(batch)
+        zero_consensus_output = zero_consensus_model(batch)
+    assert torch.allclose(
+        sample_gate_baseline["atlas_weight"],
+        zero_consensus_output["atlas_weight"],
+        atol=1e-6,
+    )
+    assert torch.allclose(
+        sample_gate_baseline["fusion_logits"],
+        zero_consensus_output["fusion_logits"],
+        atol=1e-6,
+    )
+
+    consensus_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_sample_gate=True,
+        use_consensus_gate=True,
+        consensus_gate_scale=0.5,
+    )
+    consensus_output = consensus_model(batch)
+    assert consensus_output["consensus_disagreement"].shape == (4, 3)
+    assert torch.allclose(
+        consensus_output["atlas_weight"].sum(dim=1),
+        torch.ones(4),
+        atol=1e-6,
+    )
+    consensus_loss_details = criterion(consensus_output, labels)
+    consensus_loss_details["loss"].backward()
+    assert torch.isfinite(consensus_loss_details["loss"])
+
     override_model = SMAFEdgeEnergyNet(
         atlas_specs=atlas_specs,
         hidden_dim=16,
