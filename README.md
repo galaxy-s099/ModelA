@@ -388,6 +388,12 @@ v7.7 100 epoch fixed dual-window checkpoint probability ensemble:
 python run_abide.py --config configs/abide_proposal_v7_7.yaml
 ```
 
+v7.8 v7.7 with a fixed decision threshold of 0.52:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v7_8.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
