@@ -5,7 +5,11 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from models.edge_encoder import EdgeBranchEncoder, fc_to_node_summary
+from models.edge_encoder import (
+    EdgeBranchEncoder,
+    apply_fc_topk_sparsity,
+    fc_to_node_summary,
+)
 
 
 def main():
@@ -21,6 +25,18 @@ def main():
     summary = fc_to_node_summary(fc)
     expected = torch.tensor([[0.5, 2.0, 1.5, 1.0, 0.0, 1.0, 1.5, 2.0, 2.5]])
     assert torch.allclose(summary, expected)
+
+    sparse_fc = apply_fc_topk_sparsity(fc, topk_ratio=1.0 / 3.0)
+    expected_sparse_fc = torch.tensor(
+        [
+            [
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 3.0],
+                [0.0, 3.0, 0.0],
+            ]
+        ]
+    )
+    assert torch.allclose(sparse_fc, expected_sparse_fc)
 
     encoder = EdgeBranchEncoder(
         input_dim=6,
@@ -99,6 +115,38 @@ def main():
     dropout_embedding.sum().backward()
     assert dropout_embedding.shape == (4, 5)
     assert torch.isfinite(dropout_embedding).all()
+
+    full_topk_encoder = EdgeBranchEncoder(
+        input_dim=6,
+        hidden_dim=8,
+        embedding_dim=5,
+        dropout=0.1,
+        edge_topk_ratio=1.0,
+    )
+    full_topk_encoder.load_state_dict(baseline_encoder.state_dict())
+    baseline_encoder.eval()
+    full_topk_encoder.eval()
+    with torch.no_grad():
+        baseline_embedding = baseline_encoder(batch)
+        full_topk_embedding = full_topk_encoder(batch)
+    assert torch.allclose(
+        baseline_embedding,
+        full_topk_embedding,
+        atol=1e-6,
+    )
+
+    sparse_topk_encoder = EdgeBranchEncoder(
+        input_dim=6,
+        hidden_dim=8,
+        embedding_dim=5,
+        dropout=0.1,
+        edge_topk_ratio=0.5,
+    )
+    sparse_topk_encoder.train()
+    sparse_topk_embedding = sparse_topk_encoder(batch)
+    sparse_topk_embedding.sum().backward()
+    assert sparse_topk_embedding.shape == (4, 5)
+    assert torch.isfinite(sparse_topk_embedding).all()
 
     print("Edge encoder test passed.")
     print("Node summary:", tuple(summary.shape))

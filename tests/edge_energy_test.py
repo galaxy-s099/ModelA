@@ -415,6 +415,22 @@ def main():
     edge_dropout_loss_details["loss"].backward()
     assert torch.isfinite(edge_dropout_loss_details["loss"])
 
+    edge_topk_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_sample_gate=True,
+        edge_topk_ratio=0.5,
+    )
+    for atlas_name in atlas_specs:
+        assert edge_topk_model.encoders[atlas_name].edge_topk_ratio == 0.5
+    edge_topk_output = edge_topk_model(batch)
+    edge_topk_loss_details = criterion(edge_topk_output, labels)
+    edge_topk_loss_details["loss"].backward()
+    assert torch.isfinite(edge_topk_loss_details["loss"])
+
     print("Edge energy test passed.")
     print("Fusion logits:", tuple(output["fusion_logits"].shape))
     print("Atlas weights:", tuple(output["atlas_weight"].shape))

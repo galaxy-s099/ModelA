@@ -113,6 +113,7 @@ def build_model(config):
                 0.25,
             ),
             edge_dropout=model_config.get("edge_dropout", 0.0),
+            edge_topk_ratio=model_config.get("edge_topk_ratio"),
         )
 
     return SMAFProposalNet(

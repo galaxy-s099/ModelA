@@ -49,6 +49,42 @@ def fc_to_node_summary(fc):
     )
 
 
+def apply_fc_topk_sparsity(fc, topk_ratio):
+    """
+    Keep the strongest absolute FC edges per sample and zero out weaker edges.
+    """
+    if fc.ndim != 3 or fc.shape[-1] != fc.shape[-2]:
+        raise ValueError(f"Expected FC shape B x N x N, received {tuple(fc.shape)}")
+    if topk_ratio is None or topk_ratio >= 1.0:
+        return fc
+    if topk_ratio <= 0.0:
+        raise ValueError("edge_topk_ratio must be greater than 0")
+
+    batch_size, num_nodes, _ = fc.shape
+    edge_index = torch.triu_indices(
+        num_nodes,
+        num_nodes,
+        offset=1,
+        device=fc.device,
+    )
+    edge_values = fc[:, edge_index[0], edge_index[1]]
+    edge_count = edge_values.shape[-1]
+    keep_count = max(1, int(round(edge_count * topk_ratio)))
+    _, topk_indices = torch.topk(
+        edge_values.abs(),
+        k=keep_count,
+        dim=-1,
+    )
+    mask_values = torch.zeros_like(edge_values)
+    mask_values.scatter_(dim=-1, index=topk_indices, value=1.0)
+
+    sparse_fc = torch.zeros_like(fc)
+    sparse_edge_values = edge_values * mask_values
+    sparse_fc[:, edge_index[0], edge_index[1]] = sparse_edge_values
+    sparse_fc[:, edge_index[1], edge_index[0]] = sparse_edge_values
+    return sparse_fc
+
+
 class EdgeBranchEncoder(nn.Module):
     """Signed edge-vector atlas encoder used by the stronger SMAF-Net v5 branch."""
 
@@ -66,6 +102,7 @@ class EdgeBranchEncoder(nn.Module):
         edge_residual_hidden_dim=64,
         edge_residual_scale=0.25,
         edge_dropout=0.0,
+        edge_topk_ratio=None,
     ):
         super().__init__()
         if use_node_summary and num_nodes is None:
@@ -74,11 +111,14 @@ class EdgeBranchEncoder(nn.Module):
             raise ValueError("edge_residual_scale must be non-negative")
         if not 0.0 <= edge_dropout < 1.0:
             raise ValueError("edge_dropout must be in [0, 1)")
+        if edge_topk_ratio is not None and not 0.0 < edge_topk_ratio <= 1.0:
+            raise ValueError("edge_topk_ratio must be in (0, 1]")
 
         self.use_node_summary = use_node_summary
         self.use_edge_residual = use_edge_residual
         self.edge_residual_scale = edge_residual_scale
         self.edge_dropout = edge_dropout
+        self.edge_topk_ratio = edge_topk_ratio
         self.edge_encoder = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
@@ -124,6 +164,7 @@ class EdgeBranchEncoder(nn.Module):
             self.edge_residual = None
 
     def forward(self, fc):
+        fc = apply_fc_topk_sparsity(fc, self.edge_topk_ratio)
         edge_vector = fc_to_signed_edge_vector(fc)
         if self.edge_dropout > 0:
             edge_vector = F.dropout(

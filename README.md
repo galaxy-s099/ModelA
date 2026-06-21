@@ -424,6 +424,12 @@ v8.4 v6.6 with training-only FC edge dropout:
 python run_abide.py --config configs/abide_proposal_v8_4.yaml
 ```
 
+v8.5 v6.6 with per-sample FC top-k edge sparsification:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v8_5.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

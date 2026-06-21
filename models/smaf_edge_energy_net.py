@@ -47,6 +47,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         edge_residual_hidden_dim=64,
         edge_residual_scale=0.25,
         edge_dropout=0.0,
+        edge_topk_ratio=None,
     ):
         super().__init__()
         if temperature <= 0:
@@ -92,6 +93,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.edge_residual_hidden_dim = edge_residual_hidden_dim
         self.edge_residual_scale = edge_residual_scale
         self.edge_dropout = edge_dropout
+        self.edge_topk_ratio = edge_topk_ratio
         self.embedding_dims = {}
         self.total_embedding_dim = 0
 
@@ -134,6 +136,10 @@ class SMAFEdgeEnergyNet(nn.Module):
             atlas_edge_dropout = float(
                 atlas_config.get("edge_dropout", edge_dropout)
             )
+            atlas_edge_topk_ratio = atlas_config.get(
+                "edge_topk_ratio",
+                edge_topk_ratio,
+            )
             num_nodes = int(spec["num_nodes"])
             input_dim = num_nodes * (num_nodes - 1)
             self.encoders[atlas_name] = EdgeBranchEncoder(
@@ -149,6 +155,7 @@ class SMAFEdgeEnergyNet(nn.Module):
                 edge_residual_hidden_dim=atlas_edge_residual_hidden_dim,
                 edge_residual_scale=atlas_edge_residual_scale,
                 edge_dropout=atlas_edge_dropout,
+                edge_topk_ratio=atlas_edge_topk_ratio,
             )
             self.classifiers[atlas_name] = nn.Linear(atlas_embedding_dim, 2)
             self.embedding_dims[atlas_name] = atlas_embedding_dim
