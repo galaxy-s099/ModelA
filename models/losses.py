@@ -25,6 +25,7 @@ class ProposalLoss(nn.Module):
         class_weights=None,
         lambda_weight_align=0.0,
         weight_align_temperature=1.0,
+        lambda_site_adversarial=0.0,
     ):
         super().__init__()
         supported_modes = {"proposal_literal", "fusion_better"}
@@ -37,6 +38,8 @@ class ProposalLoss(nn.Module):
             raise ValueError("lambda_weight_align must be non-negative")
         if weight_align_temperature <= 0:
             raise ValueError("weight_align_temperature must be greater than zero")
+        if lambda_site_adversarial < 0:
+            raise ValueError("lambda_site_adversarial must be non-negative")
 
         self.lambda_branch = lambda_branch
         self.lambda_reg = lambda_reg
@@ -44,6 +47,7 @@ class ProposalLoss(nn.Module):
         self.regularization_mode = regularization_mode
         self.lambda_weight_align = lambda_weight_align
         self.weight_align_temperature = weight_align_temperature
+        self.lambda_site_adversarial = lambda_site_adversarial
         if class_weights is None:
             self.class_weights = None
         else:
@@ -54,7 +58,7 @@ class ProposalLoss(nn.Module):
                 raise ValueError("class_weights must be positive")
             self.class_weights = weights
 
-    def forward(self, output, labels):
+    def forward(self, output, labels, site_labels=None):
         class_weights = None
         if self.class_weights is not None:
             class_weights = self.class_weights.to(labels.device)
@@ -78,6 +82,7 @@ class ProposalLoss(nn.Module):
                 "branch_loss": zero,
                 "regularization_loss": zero,
                 "weight_alignment_loss": zero,
+                "site_adversarial_loss": zero,
             }
 
         branch_losses = torch.stack(
@@ -124,11 +129,26 @@ class ProposalLoss(nn.Module):
                 target_weight,
                 reduction="batchmean",
             )
+        site_adversarial_loss = fusion_loss.new_zeros(())
+        if self.lambda_site_adversarial > 0:
+            site_logits = output.get("site_logits")
+            if site_logits is None:
+                raise ValueError(
+                    "site_logits are required when lambda_site_adversarial "
+                    "is non-zero"
+                )
+            if site_labels is None:
+                raise ValueError(
+                    "site labels are required when lambda_site_adversarial "
+                    "is non-zero"
+                )
+            site_adversarial_loss = F.cross_entropy(site_logits, site_labels)
         total_loss = (
             fusion_loss
             + self.lambda_branch * branch_losses.sum()
             + self.lambda_reg * regularization_loss
             + self.lambda_weight_align * weight_alignment_loss
+            + self.lambda_site_adversarial * site_adversarial_loss
         )
 
         return {
@@ -137,4 +157,5 @@ class ProposalLoss(nn.Module):
             "branch_loss": branch_losses.detach().mean(),
             "regularization_loss": regularization_loss.detach(),
             "weight_alignment_loss": weight_alignment_loss.detach(),
+            "site_adversarial_loss": site_adversarial_loss.detach(),
         }

@@ -27,7 +27,13 @@ def move_batch_to_device(batch, device):
 def build_model(config):
     model_config = config["model"]
     num_sites = model_config.get("num_sites")
-    if model_config.get("use_site_embedding", False) and num_sites is None:
+    if (
+        (
+            model_config.get("use_site_embedding", False)
+            or model_config.get("use_site_adversarial", False)
+        )
+        and num_sites is None
+    ):
         num_sites = load_site_count(
             config["data"]["data_root"],
             model_config.get("site_file", "site_ids.npy"),
@@ -135,6 +141,18 @@ def build_model(config):
             use_site_embedding=model_config.get("use_site_embedding", False),
             num_sites=num_sites,
             site_embedding_dim=model_config.get("site_embedding_dim", 8),
+            use_site_adversarial=model_config.get(
+                "use_site_adversarial",
+                False,
+            ),
+            site_adversarial_hidden_dim=model_config.get(
+                "site_adversarial_hidden_dim",
+                64,
+            ),
+            site_adversarial_grl_lambda=model_config.get(
+                "site_adversarial_grl_lambda",
+                1.0,
+            ),
         )
 
     return SMAFProposalNet(
@@ -170,6 +188,10 @@ def build_loss(config):
         weight_align_temperature=loss_config.get(
             "weight_align_temperature",
             1.0,
+        ),
+        lambda_site_adversarial=loss_config.get(
+            "lambda_site_adversarial",
+            0.0,
         ),
     )
 
@@ -679,7 +701,11 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                     batch = move_batch_to_device(batch, device)
                     run_optimizer.zero_grad()
                     output = run_model(batch)
-                    loss_details = run_criterion(output, batch["label"])
+                    loss_details = run_criterion(
+                        output,
+                        batch["label"],
+                        batch.get("site"),
+                    )
                     loss_details["loss"].backward()
                     run_optimizer.step()
 
@@ -746,7 +772,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             batch = move_batch_to_device(batch, device)
             optimizer.zero_grad()
             output = model(batch)
-            loss_details = criterion(output, batch["label"])
+            loss_details = criterion(output, batch["label"], batch.get("site"))
             loss_details["loss"].backward()
             optimizer.step()
 

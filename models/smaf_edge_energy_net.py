@@ -6,6 +6,28 @@ import torch.nn as nn
 from models.edge_encoder import EdgeBranchEncoder
 
 
+class GradientReversalFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, inputs, lambd):
+        ctx.lambd = lambd
+        return inputs.view_as(inputs)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return -ctx.lambd * grad_output, None
+
+
+class GradientReversal(nn.Module):
+    def __init__(self, lambd=1.0):
+        super().__init__()
+        if lambd < 0:
+            raise ValueError("gradient reversal lambda must be non-negative")
+        self.lambd = float(lambd)
+
+    def forward(self, inputs):
+        return GradientReversalFunction.apply(inputs, self.lambd)
+
+
 class SMAFEdgeEnergyNet(nn.Module):
     """
     v2.2 hybrid model:
@@ -56,6 +78,9 @@ class SMAFEdgeEnergyNet(nn.Module):
         use_site_embedding=False,
         num_sites=None,
         site_embedding_dim=8,
+        use_site_adversarial=False,
+        site_adversarial_hidden_dim=64,
+        site_adversarial_grl_lambda=1.0,
     ):
         super().__init__()
         if temperature <= 0:
@@ -87,6 +112,13 @@ class SMAFEdgeEnergyNet(nn.Module):
                 )
             if int(site_embedding_dim) <= 0:
                 raise ValueError("site_embedding_dim must be positive")
+        if use_site_adversarial:
+            if num_sites is None or int(num_sites) <= 0:
+                raise ValueError(
+                    "num_sites must be provided when use_site_adversarial is true"
+                )
+            if int(site_adversarial_hidden_dim) <= 0:
+                raise ValueError("site_adversarial_hidden_dim must be positive")
 
         self.atlas_specs = OrderedDict(atlas_specs)
         self.atlas_names = list(self.atlas_specs.keys())
@@ -125,8 +157,11 @@ class SMAFEdgeEnergyNet(nn.Module):
             else logit_meta_dropout
         )
         self.use_site_embedding = use_site_embedding
+        self.use_site_adversarial = use_site_adversarial
         self.num_sites = None if num_sites is None else int(num_sites)
         self.site_embedding_dim = int(site_embedding_dim)
+        self.site_adversarial_hidden_dim = int(site_adversarial_hidden_dim)
+        self.site_adversarial_grl_lambda = float(site_adversarial_grl_lambda)
         self.embedding_dims = {}
         self.total_embedding_dim = 0
         self.total_conditioned_embedding_dim = 0
@@ -138,6 +173,12 @@ class SMAFEdgeEnergyNet(nn.Module):
             )
         else:
             self.site_embedding = None
+        if self.use_site_adversarial:
+            self.gradient_reversal = GradientReversal(
+                self.site_adversarial_grl_lambda,
+            )
+        else:
+            self.gradient_reversal = None
 
         self.encoders = nn.ModuleDict()
         self.classifiers = nn.ModuleDict()
@@ -223,6 +264,17 @@ class SMAFEdgeEnergyNet(nn.Module):
             nn.init.zeros_(self.sample_gate[-1].bias)
         else:
             self.sample_gate = None
+
+        if self.use_site_adversarial:
+            self.site_classifier = nn.Sequential(
+                nn.LayerNorm(self.total_embedding_dim),
+                nn.Linear(self.total_embedding_dim, self.site_adversarial_hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(self.site_adversarial_hidden_dim, self.num_sites),
+            )
+        else:
+            self.site_classifier = None
 
         if self.use_residual_classifier:
             if len(set(self.embedding_dims.values())) != 1:
@@ -422,7 +474,15 @@ class SMAFEdgeEnergyNet(nn.Module):
         shared_correction_logits = None
         branch_residual_correction_logits = None
         logit_meta_fusion_logits = None
+        site_logits = None
         fusion_logits = weighted_logits
+        if self.site_classifier is not None:
+            if "site" not in batch:
+                raise ValueError(
+                    "Batch is missing site ids while use_site_adversarial is true"
+                )
+            site_input = torch.cat(graph_embeddings, dim=-1)
+            site_logits = self.site_classifier(self.gradient_reversal(site_input))
         if self.logit_meta_fusion is not None:
             meta_input = torch.cat(
                 [
@@ -482,6 +542,7 @@ class SMAFEdgeEnergyNet(nn.Module):
             "shared_correction_logits": shared_correction_logits,
             "branch_residual_correction_logits": branch_residual_correction_logits,
             "logit_meta_fusion_logits": logit_meta_fusion_logits,
+            "site_logits": site_logits,
             "branch_logits": stacked_logits,
             "energy": energy,
             "atlas_weight": atlas_weight,

@@ -518,6 +518,43 @@ def main():
     else:
         raise AssertionError("site model should require site ids in the batch")
 
+    site_adv_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_sample_gate=True,
+        use_site_adversarial=True,
+        num_sites=3,
+        site_adversarial_hidden_dim=8,
+        site_adversarial_grl_lambda=1.0,
+    )
+    site_adv_output = site_adv_model(site_batch)
+    assert site_adv_output["fusion_logits"].shape == (4, 2)
+    assert site_adv_output["site_logits"].shape == (4, 3)
+    site_adv_criterion = ProposalLoss(
+        lambda_branch=0.2,
+        lambda_reg=0.1,
+        margin=0.1,
+        lambda_site_adversarial=0.05,
+    )
+    site_adv_loss_details = site_adv_criterion(
+        site_adv_output,
+        labels,
+        site_batch["site"],
+    )
+    site_adv_loss_details["loss"].backward()
+    assert site_adv_model.site_classifier[-1].weight.grad is not None
+    assert torch.isfinite(site_adv_model.site_classifier[-1].weight.grad).all()
+
+    try:
+        site_adv_model(batch)
+    except ValueError as exc:
+        assert "site ids" in str(exc)
+    else:
+        raise AssertionError("site adversarial model should require site ids")
+
     print("Edge energy test passed.")
     print("Fusion logits:", tuple(output["fusion_logits"].shape))
     print("Atlas weights:", tuple(output["atlas_weight"].shape))

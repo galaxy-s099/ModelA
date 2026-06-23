@@ -466,6 +466,12 @@ v9.2 v6.6 with softer fold-local supervised edge selection:
 python run_abide.py --config configs/abide_proposal_v9_2.yaml
 ```
 
+v9.3 v6.6 with site-adversarial representation learning:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v9_3.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
