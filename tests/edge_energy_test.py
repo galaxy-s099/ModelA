@@ -431,6 +431,40 @@ def main():
     edge_topk_loss_details["loss"].backward()
     assert torch.isfinite(edge_topk_loss_details["loss"])
 
+    atlas_dropout_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_sample_gate=True,
+        atlas_dropout=1.0,
+        atlas_dropout_mode="single",
+    )
+    atlas_dropout_model.train()
+    atlas_dropout_output = atlas_dropout_model(batch)
+    assert atlas_dropout_output["atlas_keep_mask"].shape == (4, 3)
+    assert torch.all(atlas_dropout_output["atlas_keep_mask"].sum(dim=1) == 2)
+    assert torch.allclose(
+        atlas_dropout_output["atlas_weight"].sum(dim=1),
+        torch.ones(4),
+        atol=1e-6,
+    )
+    assert torch.all(
+        atlas_dropout_output["atlas_weight"][
+            ~atlas_dropout_output["atlas_keep_mask"]
+        ]
+        < 1e-6
+    )
+    atlas_dropout_loss_details = criterion(atlas_dropout_output, labels)
+    atlas_dropout_loss_details["loss"].backward()
+    assert torch.isfinite(atlas_dropout_loss_details["loss"])
+
+    atlas_dropout_model.eval()
+    with torch.no_grad():
+        atlas_dropout_eval_output = atlas_dropout_model(batch)
+    assert atlas_dropout_eval_output["atlas_keep_mask"] is None
+
     print("Edge energy test passed.")
     print("Fusion logits:", tuple(output["fusion_logits"].shape))
     print("Atlas weights:", tuple(output["atlas_weight"].shape))

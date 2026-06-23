@@ -48,6 +48,8 @@ class SMAFEdgeEnergyNet(nn.Module):
         edge_residual_scale=0.25,
         edge_dropout=0.0,
         edge_topk_ratio=None,
+        atlas_dropout=0.0,
+        atlas_dropout_mode="single",
     ):
         super().__init__()
         if temperature <= 0:
@@ -66,6 +68,12 @@ class SMAFEdgeEnergyNet(nn.Module):
             )
         if consensus_gate_scale < 0:
             raise ValueError("consensus_gate_scale must be non-negative")
+        if not 0.0 <= atlas_dropout <= 1.0:
+            raise ValueError("atlas_dropout must be in [0, 1]")
+        if atlas_dropout_mode not in {"single", "independent"}:
+            raise ValueError(
+                "atlas_dropout_mode must be either single or independent"
+            )
 
         self.atlas_specs = OrderedDict(atlas_specs)
         self.atlas_names = list(self.atlas_specs.keys())
@@ -94,6 +102,8 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.edge_residual_scale = edge_residual_scale
         self.edge_dropout = edge_dropout
         self.edge_topk_ratio = edge_topk_ratio
+        self.atlas_dropout = atlas_dropout
+        self.atlas_dropout_mode = atlas_dropout_mode
         self.embedding_dims = {}
         self.total_embedding_dim = 0
 
@@ -239,6 +249,49 @@ class SMAFEdgeEnergyNet(nn.Module):
             dim=-1,
         )
 
+    def sample_atlas_keep_mask(self, energy_score):
+        if not self.training or self.atlas_dropout <= 0:
+            return None
+
+        batch_size = energy_score.shape[0]
+        device = energy_score.device
+        if self.atlas_dropout_mode == "single":
+            keep_mask = torch.ones(
+                batch_size,
+                self.num_atlases,
+                dtype=torch.bool,
+                device=device,
+            )
+            drop_sample = torch.rand(batch_size, device=device) < self.atlas_dropout
+            drop_index = torch.randint(
+                low=0,
+                high=self.num_atlases,
+                size=(batch_size,),
+                device=device,
+            )
+            keep_mask[drop_sample, drop_index[drop_sample]] = False
+            return keep_mask
+
+        keep_mask = (
+            torch.rand(
+                batch_size,
+                self.num_atlases,
+                device=device,
+            )
+            >= self.atlas_dropout
+        )
+        all_dropped = ~keep_mask.any(dim=1)
+        if all_dropped.any():
+            restore_index = torch.randint(
+                low=0,
+                high=self.num_atlases,
+                size=(int(all_dropped.sum().item()),),
+                device=device,
+            )
+            keep_mask[all_dropped] = False
+            keep_mask[all_dropped, restore_index] = True
+        return keep_mask
+
     def forward(self, batch):
         branch_logits = []
         branch_details = {}
@@ -275,13 +328,27 @@ class SMAFEdgeEnergyNet(nn.Module):
             sample_gate_logits = self.sample_gate(sample_gate_input)
             energy_score = energy_score + self.sample_gate_scale * sample_gate_logits
 
+        atlas_keep_mask = self.sample_atlas_keep_mask(energy_score)
+        gated_energy_score = energy_score
+        if atlas_keep_mask is not None:
+            gated_energy_score = energy_score.masked_fill(
+                ~atlas_keep_mask,
+                -1e9,
+            )
+
         base_atlas_weight = torch.softmax(base_energy_score, dim=1)
-        gated_atlas_weight = torch.softmax(energy_score, dim=1)
+        gated_atlas_weight = torch.softmax(gated_energy_score, dim=1)
         if self.use_dual_energy_blend:
             atlas_weight = (
                 self.dual_energy_blend_alpha * gated_atlas_weight
                 + (1.0 - self.dual_energy_blend_alpha) * base_atlas_weight
             )
+            if atlas_keep_mask is not None:
+                atlas_weight = atlas_weight * atlas_keep_mask.float()
+                atlas_weight = atlas_weight / atlas_weight.sum(
+                    dim=1,
+                    keepdim=True,
+                ).clamp_min(1e-8)
         else:
             atlas_weight = gated_atlas_weight
         weighted_logits = torch.sum(
@@ -345,6 +412,7 @@ class SMAFEdgeEnergyNet(nn.Module):
             "atlas_weight": atlas_weight,
             "base_atlas_weight": base_atlas_weight,
             "gated_atlas_weight": gated_atlas_weight,
+            "atlas_keep_mask": atlas_keep_mask,
             "consensus_disagreement": consensus_disagreement,
             "atlas_prior": self.atlas_prior,
             "sample_gate_logits": sample_gate_logits,

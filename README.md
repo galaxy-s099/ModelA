@@ -436,6 +436,12 @@ v8.6 v8.5 with lighter FC top-k sparsification:
 python run_abide.py --config configs/abide_proposal_v8_6.yaml
 ```
 
+v8.7 v6.6 with training-only atlas dropout:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v8_7.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

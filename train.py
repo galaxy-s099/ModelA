@@ -114,6 +114,8 @@ def build_model(config):
             ),
             edge_dropout=model_config.get("edge_dropout", 0.0),
             edge_topk_ratio=model_config.get("edge_topk_ratio"),
+            atlas_dropout=model_config.get("atlas_dropout", 0.0),
+            atlas_dropout_mode=model_config.get("atlas_dropout_mode", "single"),
         )
 
     return SMAFProposalNet(
