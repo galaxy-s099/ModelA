@@ -454,6 +454,12 @@ v9.0 v6.6 with site embedding conditioning:
 python run_abide.py --config configs/abide_proposal_v9_0.yaml
 ```
 
+v9.1 v6.6 with fold-local supervised edge selection:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v9_1.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

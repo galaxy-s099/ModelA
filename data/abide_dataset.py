@@ -34,6 +34,7 @@ class ABIDEMultiAtlasDataset(Dataset):
                 _, encoded_site_ids = np.unique(raw_site_ids, return_inverse=True)
                 self.site_ids = encoded_site_ids.astype(np.int64)
         self.fc_matrices = {}
+        self.edge_masks = {}
         self.node_features = {}
 
         for atlas_name, spec in self.atlas_specs.items():
@@ -54,6 +55,15 @@ class ABIDEMultiAtlasDataset(Dataset):
                 )
 
             self.fc_matrices[atlas_name] = fc
+            edge_mask = spec.get("edge_mask")
+            if edge_mask is not None:
+                edge_mask = np.asarray(edge_mask, dtype=np.float32)
+                if edge_mask.shape != expected_shape:
+                    raise ValueError(
+                        f"{atlas_name}: expected edge_mask shape "
+                        f"{expected_shape}, received {edge_mask.shape}"
+                    )
+                self.edge_masks[atlas_name] = edge_mask
 
             node_feature_file = spec.get("node_feature_file")
             if node_feature_file:
@@ -85,6 +95,9 @@ class ABIDEMultiAtlasDataset(Dataset):
         sample = {}
         for atlas_name, fc in self.fc_matrices.items():
             matrix = np.clip(fc[real_index], -1.0, 1.0).astype(np.float32, copy=False)
+            edge_mask = self.edge_masks.get(atlas_name)
+            if edge_mask is not None:
+                matrix = matrix * edge_mask
             sample[atlas_name] = torch.from_numpy(matrix)
 
         for atlas_name, features in self.node_features.items():

@@ -1,4 +1,5 @@
 from copy import deepcopy
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -171,6 +172,94 @@ def build_loss(config):
             1.0,
         ),
     )
+
+
+def compute_effect_size_scores(group_a, group_b, eps=1e-6):
+    mean_a = group_a.mean(axis=0)
+    mean_b = group_b.mean(axis=0)
+    var_a = group_a.var(axis=0)
+    var_b = group_b.var(axis=0)
+    pooled_std = np.sqrt((var_a + var_b) / 2.0)
+    return np.abs(mean_b - mean_a) / (pooled_std + eps)
+
+
+def build_supervised_edge_selected_atlas_specs(
+    data_root,
+    atlas_specs,
+    train_indices,
+    labels,
+    selection_config,
+):
+    if not selection_config or not selection_config.get("enabled", False):
+        return atlas_specs, {}
+
+    ratio = selection_config.get("ratio", 0.2)
+    atlas_ratios = selection_config.get("atlas_ratios", {})
+    if not 0.0 < float(ratio) <= 1.0:
+        raise ValueError("supervised edge selection ratio must be in (0, 1]")
+
+    train_indices = np.asarray(train_indices)
+    train_labels = labels[train_indices]
+    negative_mask = train_labels == 0
+    positive_mask = train_labels == 1
+    if not negative_mask.any() or not positive_mask.any():
+        raise ValueError("supervised edge selection needs both classes in train fold")
+
+    selected_specs = deepcopy(atlas_specs)
+    selection_stats = {}
+    data_root = str(data_root)
+
+    for atlas_name, spec in selected_specs.items():
+        atlas_ratio = float(atlas_ratios.get(atlas_name, ratio))
+        if not 0.0 < atlas_ratio <= 1.0:
+            raise ValueError(
+                f"{atlas_name}: supervised edge selection ratio must be in (0, 1]"
+            )
+
+        num_nodes = int(spec["num_nodes"])
+        edge_index = np.triu_indices(num_nodes, k=1)
+        edge_count = len(edge_index[0])
+        fc_file = spec.get("fc_file", f"X_{atlas_name}.npy")
+        fc = np.load(Path(data_root) / fc_file, mmap_mode="r")
+        train_fc = np.clip(fc[train_indices], -1.0, 1.0)
+        edge_values = train_fc[:, edge_index[0], edge_index[1]]
+        signed_edges = np.concatenate(
+            [
+                np.clip(edge_values, 0.0, None),
+                np.clip(-edge_values, 0.0, None),
+            ],
+            axis=1,
+        )
+
+        scores = compute_effect_size_scores(
+            signed_edges[negative_mask],
+            signed_edges[positive_mask],
+        )
+        edge_scores = np.maximum(scores[:edge_count], scores[edge_count:])
+        edge_keep_count = max(1, int(round(edge_count * atlas_ratio)))
+        if edge_keep_count >= edge_count:
+            selected_edge_indices = np.arange(edge_count)
+        else:
+            selected_edge_indices = np.argpartition(
+                edge_scores,
+                -edge_keep_count,
+            )[-edge_keep_count:]
+
+        edge_mask = np.zeros((num_nodes, num_nodes), dtype=np.float32)
+        edge_mask[
+            edge_index[0][selected_edge_indices],
+            edge_index[1][selected_edge_indices],
+        ] = 1.0
+        edge_mask = edge_mask + edge_mask.T
+        spec["edge_mask"] = edge_mask
+        selection_stats[f"SelectedEdges_{atlas_name}"] = int(
+            len(selected_edge_indices)
+        )
+        selection_stats[f"SelectedEdgeRatio_{atlas_name}"] = float(
+            len(selected_edge_indices) / edge_count
+        )
+
+    return selected_specs, selection_stats
 
 
 def compute_threshold_score(y_true, y_pred, metric="ACC"):
@@ -448,32 +537,50 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         train_sub_idx = train_idx
         val_idx = None
 
+    selection_config = config.get("feature_selection", {}).get(
+        "supervised_edges",
+    )
+    fold_atlas_specs, selection_stats = build_supervised_edge_selected_atlas_specs(
+        data_root,
+        atlas_specs,
+        train_sub_idx,
+        labels,
+        selection_config,
+    )
+
+    def attach_selection_stats(metrics):
+        if selection_stats:
+            metrics.update(selection_stats)
+        return metrics
+
     train_loader = DataLoader(
-        ABIDEMultiAtlasDataset(data_root, atlas_specs, train_sub_idx),
+        ABIDEMultiAtlasDataset(data_root, fold_atlas_specs, train_sub_idx),
         batch_size=train_config["batch_size"],
         shuffle=True,
     )
     train_eval_loader = None
     if train_config.get("search_train_threshold", False):
         train_eval_loader = DataLoader(
-            ABIDEMultiAtlasDataset(data_root, atlas_specs, train_sub_idx),
+            ABIDEMultiAtlasDataset(data_root, fold_atlas_specs, train_sub_idx),
             batch_size=train_config["batch_size"],
             shuffle=False,
         )
     test_loader = DataLoader(
-        ABIDEMultiAtlasDataset(data_root, atlas_specs, test_idx),
+        ABIDEMultiAtlasDataset(data_root, fold_atlas_specs, test_idx),
         batch_size=train_config["batch_size"],
         shuffle=False,
     )
     val_loader = None
     if val_idx is not None:
         val_loader = DataLoader(
-            ABIDEMultiAtlasDataset(data_root, atlas_specs, val_idx),
+            ABIDEMultiAtlasDataset(data_root, fold_atlas_specs, val_idx),
             batch_size=train_config["batch_size"],
             shuffle=False,
         )
 
-    model = build_model(config).to(device)
+    fold_config = deepcopy(config)
+    fold_config["data"]["atlases"] = fold_atlas_specs
+    model = build_model(fold_config).to(device)
     criterion = build_loss(config)
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -631,7 +738,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             metrics["Checkpoint_Ensemble_Interval"] = checkpoint_ensemble_interval
         metrics["Checkpoint_Ensemble_Weighting"] = checkpoint_ensemble_weighting
         metrics["Decision_Threshold"] = decision_threshold
-        return metrics
+        return attach_selection_stats(metrics)
 
     for epoch in range(train_config["epochs"]):
         model.train()
@@ -725,7 +832,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         best_test_metrics["Best_Test_Epoch"] = best_test_epoch + 1
         best_test_metrics["Best_Test_Threshold"] = 0.5
         best_test_metrics[f"Best_Test_{test_select_metric}"] = best_test_score
-        return best_test_metrics
+        return attach_selection_stats(best_test_metrics)
 
     if ensemble_states:
         ensemble_threshold = decision_threshold
@@ -801,7 +908,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             )
             if normalize_metric_name(threshold_score_metric) == "ACC":
                 metrics["Train_Threshold_ACC"] = train_threshold_score
-        return metrics
+        return attach_selection_stats(metrics)
 
     if best_state is not None:
         model.load_state_dict(best_state)
@@ -854,7 +961,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         if normalize_metric_name(threshold_score_metric) == "ACC":
             metrics["Train_Threshold_ACC"] = best_val_score
 
-    return metrics
+    return attach_selection_stats(metrics)
 
 
 def run_repeated_cv(config):
