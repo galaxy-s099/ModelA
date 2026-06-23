@@ -442,6 +442,12 @@ v8.7 v6.6 with training-only atlas dropout:
 python run_abide.py --config configs/abide_proposal_v8_7.yaml
 ```
 
+v8.8 v6.6 with logits-level meta fusion:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v8_8.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

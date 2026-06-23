@@ -50,6 +50,9 @@ class SMAFEdgeEnergyNet(nn.Module):
         edge_topk_ratio=None,
         atlas_dropout=0.0,
         atlas_dropout_mode="single",
+        use_logit_meta_fusion=False,
+        logit_meta_hidden_dim=16,
+        logit_meta_dropout=None,
     ):
         super().__init__()
         if temperature <= 0:
@@ -104,6 +107,13 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.edge_topk_ratio = edge_topk_ratio
         self.atlas_dropout = atlas_dropout
         self.atlas_dropout_mode = atlas_dropout_mode
+        self.use_logit_meta_fusion = use_logit_meta_fusion
+        self.logit_meta_hidden_dim = logit_meta_hidden_dim
+        self.logit_meta_dropout = (
+            dropout
+            if logit_meta_dropout is None
+            else logit_meta_dropout
+        )
         self.embedding_dims = {}
         self.total_embedding_dim = 0
 
@@ -243,6 +253,18 @@ class SMAFEdgeEnergyNet(nn.Module):
         else:
             self.branch_residual_correction = None
 
+        if self.use_logit_meta_fusion:
+            meta_input_dim = self.num_atlases * 3
+            self.logit_meta_fusion = nn.Sequential(
+                nn.LayerNorm(meta_input_dim),
+                nn.Linear(meta_input_dim, logit_meta_hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(self.logit_meta_dropout),
+                nn.Linear(logit_meta_hidden_dim, 2),
+            )
+        else:
+            self.logit_meta_fusion = None
+
     def compute_energy(self, logits):
         return -self.temperature * torch.logsumexp(
             logits / self.temperature,
@@ -358,7 +380,18 @@ class SMAFEdgeEnergyNet(nn.Module):
         residual_logits = None
         shared_correction_logits = None
         branch_residual_correction_logits = None
+        logit_meta_fusion_logits = None
         fusion_logits = weighted_logits
+        if self.logit_meta_fusion is not None:
+            meta_input = torch.cat(
+                [
+                    stacked_logits.reshape(stacked_logits.shape[0], -1),
+                    atlas_weight,
+                ],
+                dim=-1,
+            )
+            logit_meta_fusion_logits = self.logit_meta_fusion(meta_input)
+            fusion_logits = logit_meta_fusion_logits
         if self.residual_classifier is not None:
             stacked_embeddings = torch.stack(graph_embeddings, dim=1)
             gated_embedding = torch.sum(
@@ -407,6 +440,7 @@ class SMAFEdgeEnergyNet(nn.Module):
             "residual_logits": residual_logits,
             "shared_correction_logits": shared_correction_logits,
             "branch_residual_correction_logits": branch_residual_correction_logits,
+            "logit_meta_fusion_logits": logit_meta_fusion_logits,
             "branch_logits": stacked_logits,
             "energy": energy,
             "atlas_weight": atlas_weight,

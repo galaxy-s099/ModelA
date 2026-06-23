@@ -116,6 +116,15 @@ def build_model(config):
             edge_topk_ratio=model_config.get("edge_topk_ratio"),
             atlas_dropout=model_config.get("atlas_dropout", 0.0),
             atlas_dropout_mode=model_config.get("atlas_dropout_mode", "single"),
+            use_logit_meta_fusion=model_config.get(
+                "use_logit_meta_fusion",
+                False,
+            ),
+            logit_meta_hidden_dim=model_config.get(
+                "logit_meta_hidden_dim",
+                16,
+            ),
+            logit_meta_dropout=model_config.get("logit_meta_dropout"),
         )
 
     return SMAFProposalNet(

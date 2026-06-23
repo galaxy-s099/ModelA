@@ -465,6 +465,31 @@ def main():
         atlas_dropout_eval_output = atlas_dropout_model(batch)
     assert atlas_dropout_eval_output["atlas_keep_mask"] is None
 
+    logit_meta_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_sample_gate=True,
+        use_logit_meta_fusion=True,
+        logit_meta_hidden_dim=8,
+        logit_meta_dropout=0.0,
+    )
+    logit_meta_output = logit_meta_model(batch)
+    assert logit_meta_output["logit_meta_fusion_logits"].shape == (4, 2)
+    assert not torch.allclose(
+        logit_meta_output["fusion_logits"],
+        logit_meta_output["weighted_logits"],
+    )
+    logit_meta_loss_details = criterion(logit_meta_output, labels)
+    logit_meta_loss_details["loss"].backward()
+    assert torch.isfinite(logit_meta_loss_details["loss"])
+    assert logit_meta_model.logit_meta_fusion[-1].weight.grad is not None
+    assert torch.isfinite(
+        logit_meta_model.logit_meta_fusion[-1].weight.grad
+    ).all()
+
     print("Edge energy test passed.")
     print("Fusion logits:", tuple(output["fusion_logits"].shape))
     print("Atlas weights:", tuple(output["atlas_weight"].shape))
