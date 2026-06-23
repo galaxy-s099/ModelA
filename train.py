@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
 from torch.utils.data import DataLoader
 
-from data.abide_dataset import ABIDEMultiAtlasDataset, load_labels
+from data.abide_dataset import ABIDEMultiAtlasDataset, load_labels, load_site_count
 from models.losses import ProposalLoss
 from models.smaf_edge_energy_net import SMAFEdgeEnergyNet
 from models.smaf_edge_gated_proposal_net import SMAFEdgeGatedProposalNet
@@ -25,6 +25,12 @@ def move_batch_to_device(batch, device):
 
 def build_model(config):
     model_config = config["model"]
+    num_sites = model_config.get("num_sites")
+    if model_config.get("use_site_embedding", False) and num_sites is None:
+        num_sites = load_site_count(
+            config["data"]["data_root"],
+            model_config.get("site_file", "site_ids.npy"),
+        )
     if model_config.get("model_name") == "smaf_edge_proposal_v2":
         return SMAFEdgeProposalNet(
             atlas_specs=config["data"]["atlases"],
@@ -125,6 +131,9 @@ def build_model(config):
                 16,
             ),
             logit_meta_dropout=model_config.get("logit_meta_dropout"),
+            use_site_embedding=model_config.get("use_site_embedding", False),
+            num_sites=num_sites,
+            site_embedding_dim=model_config.get("site_embedding_dim", 8),
         )
 
     return SMAFProposalNet(

@@ -490,6 +490,34 @@ def main():
         logit_meta_model.logit_meta_fusion[-1].weight.grad
     ).all()
 
+    site_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_sample_gate=True,
+        use_site_embedding=True,
+        num_sites=3,
+        site_embedding_dim=4,
+    )
+    site_batch = dict(batch)
+    site_batch["site"] = torch.tensor([0, 1, 2, 1], dtype=torch.long)
+    site_output = site_model(site_batch)
+    assert site_output["fusion_logits"].shape == (4, 2)
+    assert site_output["branch_logits"].shape == (4, 3, 2)
+    site_loss_details = criterion(site_output, labels)
+    site_loss_details["loss"].backward()
+    assert site_model.site_embedding.weight.grad is not None
+    assert torch.isfinite(site_model.site_embedding.weight.grad).all()
+
+    try:
+        site_model(batch)
+    except ValueError as exc:
+        assert "site ids" in str(exc)
+    else:
+        raise AssertionError("site model should require site ids in the batch")
+
     print("Edge energy test passed.")
     print("Fusion logits:", tuple(output["fusion_logits"].shape))
     print("Atlas weights:", tuple(output["atlas_weight"].shape))

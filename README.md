@@ -448,6 +448,12 @@ v8.8 v6.6 with logits-level meta fusion:
 python run_abide.py --config configs/abide_proposal_v8_8.yaml
 ```
 
+v9.0 v6.6 with site embedding conditioning:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v9_0.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

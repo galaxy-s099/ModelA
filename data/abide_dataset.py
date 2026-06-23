@@ -19,6 +19,20 @@ class ABIDEMultiAtlasDataset(Dataset):
         self.data_root = Path(data_root)
         self.atlas_specs = OrderedDict(atlas_specs)
         self.labels = np.load(self.data_root / "labels.npy").astype(np.int64)
+        self.site_ids = None
+        site_path = self.data_root / "site_ids.npy"
+        if site_path.exists():
+            raw_site_ids = np.load(site_path, allow_pickle=True)
+            if len(raw_site_ids) != len(self.labels):
+                raise ValueError(
+                    f"site_ids sample count {len(raw_site_ids)} does not match "
+                    f"label count {len(self.labels)}"
+                )
+            if np.issubdtype(raw_site_ids.dtype, np.number):
+                self.site_ids = raw_site_ids.astype(np.int64)
+            else:
+                _, encoded_site_ids = np.unique(raw_site_ids, return_inverse=True)
+                self.site_ids = encoded_site_ids.astype(np.int64)
         self.fc_matrices = {}
         self.node_features = {}
 
@@ -78,8 +92,22 @@ class ABIDEMultiAtlasDataset(Dataset):
             sample[f"{atlas_name}_features"] = torch.from_numpy(node_features)
 
         sample["label"] = torch.tensor(self.labels[real_index], dtype=torch.long)
+        if self.site_ids is not None:
+            sample["site"] = torch.tensor(
+                self.site_ids[real_index],
+                dtype=torch.long,
+            )
         return sample
 
 
 def load_labels(data_root):
     return np.load(Path(data_root) / "labels.npy").astype(np.int64)
+
+
+def load_site_count(data_root, site_file="site_ids.npy"):
+    site_path = Path(data_root) / site_file
+    site_ids = np.load(site_path, allow_pickle=True)
+    if np.issubdtype(site_ids.dtype, np.number):
+        site_ids = site_ids.astype(np.int64)
+        return int(site_ids.max()) + 1
+    return int(len(np.unique(site_ids)))

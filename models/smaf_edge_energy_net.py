@@ -53,6 +53,9 @@ class SMAFEdgeEnergyNet(nn.Module):
         use_logit_meta_fusion=False,
         logit_meta_hidden_dim=16,
         logit_meta_dropout=None,
+        use_site_embedding=False,
+        num_sites=None,
+        site_embedding_dim=8,
     ):
         super().__init__()
         if temperature <= 0:
@@ -77,6 +80,13 @@ class SMAFEdgeEnergyNet(nn.Module):
             raise ValueError(
                 "atlas_dropout_mode must be either single or independent"
             )
+        if use_site_embedding:
+            if num_sites is None or int(num_sites) <= 0:
+                raise ValueError(
+                    "num_sites must be provided when use_site_embedding is true"
+                )
+            if int(site_embedding_dim) <= 0:
+                raise ValueError("site_embedding_dim must be positive")
 
         self.atlas_specs = OrderedDict(atlas_specs)
         self.atlas_names = list(self.atlas_specs.keys())
@@ -114,8 +124,20 @@ class SMAFEdgeEnergyNet(nn.Module):
             if logit_meta_dropout is None
             else logit_meta_dropout
         )
+        self.use_site_embedding = use_site_embedding
+        self.num_sites = None if num_sites is None else int(num_sites)
+        self.site_embedding_dim = int(site_embedding_dim)
         self.embedding_dims = {}
         self.total_embedding_dim = 0
+        self.total_conditioned_embedding_dim = 0
+
+        if self.use_site_embedding:
+            self.site_embedding = nn.Embedding(
+                self.num_sites,
+                self.site_embedding_dim,
+            )
+        else:
+            self.site_embedding = None
 
         self.encoders = nn.ModuleDict()
         self.classifiers = nn.ModuleDict()
@@ -177,9 +199,13 @@ class SMAFEdgeEnergyNet(nn.Module):
                 edge_dropout=atlas_edge_dropout,
                 edge_topk_ratio=atlas_edge_topk_ratio,
             )
-            self.classifiers[atlas_name] = nn.Linear(atlas_embedding_dim, 2)
+            classifier_input_dim = atlas_embedding_dim
+            if self.use_site_embedding:
+                classifier_input_dim += self.site_embedding_dim
+            self.classifiers[atlas_name] = nn.Linear(classifier_input_dim, 2)
             self.embedding_dims[atlas_name] = atlas_embedding_dim
             self.total_embedding_dim += atlas_embedding_dim
+            self.total_conditioned_embedding_dim += classifier_input_dim
 
         if self.use_atlas_prior:
             self.atlas_prior = nn.Parameter(torch.zeros(self.num_atlases))
@@ -188,7 +214,7 @@ class SMAFEdgeEnergyNet(nn.Module):
 
         if self.use_sample_gate:
             self.sample_gate = nn.Sequential(
-                nn.Linear(self.total_embedding_dim, hidden_dim),
+                nn.Linear(self.total_conditioned_embedding_dim, hidden_dim),
                 nn.ReLU(),
                 nn.Dropout(dropout),
                 nn.Linear(hidden_dim, self.num_atlases),
@@ -318,11 +344,26 @@ class SMAFEdgeEnergyNet(nn.Module):
         branch_logits = []
         branch_details = {}
         graph_embeddings = []
+        conditioned_graph_embeddings = []
+        site_embedding = None
+        if self.site_embedding is not None:
+            if "site" not in batch:
+                raise ValueError(
+                    "Batch is missing site ids while use_site_embedding is true"
+                )
+            site_embedding = self.site_embedding(batch["site"])
         for atlas_name in self.atlas_names:
             graph_embedding = self.encoders[atlas_name](batch[atlas_name])
             branch_details[atlas_name] = {"graph_embedding": graph_embedding}
             graph_embeddings.append(graph_embedding)
-            branch_logits.append(self.classifiers[atlas_name](graph_embedding))
+            classifier_input = graph_embedding
+            if site_embedding is not None:
+                classifier_input = torch.cat(
+                    [graph_embedding, site_embedding],
+                    dim=-1,
+                )
+            conditioned_graph_embeddings.append(classifier_input)
+            branch_logits.append(self.classifiers[atlas_name](classifier_input))
 
         stacked_logits = torch.stack(branch_logits, dim=1)
         energy = self.compute_energy(stacked_logits)
@@ -346,7 +387,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         base_energy_score = energy_score
         sample_gate_logits = None
         if self.sample_gate is not None:
-            sample_gate_input = torch.cat(graph_embeddings, dim=-1)
+            sample_gate_input = torch.cat(conditioned_graph_embeddings, dim=-1)
             sample_gate_logits = self.sample_gate(sample_gate_input)
             energy_score = energy_score + self.sample_gate_scale * sample_gate_logits
 
