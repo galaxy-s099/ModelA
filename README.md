@@ -472,6 +472,12 @@ v9.3 v6.6 with site-adversarial representation learning:
 python run_abide.py --config configs/abide_proposal_v9_3.yaml
 ```
 
+v9.4 v9.3 test-best potential check:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v9_4.yaml
+```
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
