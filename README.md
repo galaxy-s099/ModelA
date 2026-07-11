@@ -525,6 +525,16 @@ energy fusion, sample gate, loss, and checkpoint ensemble are unchanged from
 v6.6, but every encoder receives Tangent FC as its only input. No raw-Pearson
 branch or dual-representation adapter is used.
 
+v11.2 v11.0 with stronger Tangent shrinkage (`0.10` instead of `0.05`):
+
+```bash
+python run_abide.py --config configs/abide_proposal_v11_2.yaml
+```
+
+This is a focused regularization ablation: raw Pearson FC and the whole v11.0
+architecture remain unchanged; only the auxiliary Tangent branch uses a more
+strongly shrunk positive-definite FC matrix.
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
