@@ -82,6 +82,8 @@ class SMAFEdgeEnergyNet(nn.Module):
         site_adversarial_hidden_dim=64,
         site_adversarial_grl_lambda=1.0,
         use_tangent_branch=False,
+        use_fisher_z=False,
+        fisher_z_clip=0.999999,
     ):
         super().__init__()
         if temperature <= 0:
@@ -120,6 +122,8 @@ class SMAFEdgeEnergyNet(nn.Module):
                 )
             if int(site_adversarial_hidden_dim) <= 0:
                 raise ValueError("site_adversarial_hidden_dim must be positive")
+        if not 0.0 < float(fisher_z_clip) < 1.0:
+            raise ValueError("fisher_z_clip must be in (0, 1)")
 
         self.atlas_specs = OrderedDict(atlas_specs)
         self.atlas_names = list(self.atlas_specs.keys())
@@ -164,6 +168,8 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.site_adversarial_hidden_dim = int(site_adversarial_hidden_dim)
         self.site_adversarial_grl_lambda = float(site_adversarial_grl_lambda)
         self.use_tangent_branch = bool(use_tangent_branch)
+        self.use_fisher_z = bool(use_fisher_z)
+        self.fisher_z_clip = float(fisher_z_clip)
         self.embedding_dims = {}
         self.total_embedding_dim = 0
         self.total_conditioned_embedding_dim = 0
@@ -378,6 +384,12 @@ class SMAFEdgeEnergyNet(nn.Module):
             dim=-1,
         )
 
+    def transform_raw_fc(self, fc):
+        """Apply a sign-preserving Fisher r-to-z transform when configured."""
+        if not self.use_fisher_z:
+            return fc
+        return torch.atanh(fc.clamp(-self.fisher_z_clip, self.fisher_z_clip))
+
     def sample_atlas_keep_mask(self, energy_score):
         if not self.training or self.atlas_dropout <= 0:
             return None
@@ -434,7 +446,9 @@ class SMAFEdgeEnergyNet(nn.Module):
                 )
             site_embedding = self.site_embedding(batch["site"])
         for atlas_name in self.atlas_names:
-            raw_graph_embedding = self.encoders[atlas_name](batch[atlas_name])
+            raw_graph_embedding = self.encoders[atlas_name](
+                self.transform_raw_fc(batch[atlas_name])
+            )
             graph_embedding = raw_graph_embedding
             branch_details[atlas_name] = {
                 "raw_graph_embedding": raw_graph_embedding,

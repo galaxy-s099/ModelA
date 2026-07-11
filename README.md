@@ -535,6 +535,16 @@ This is a focused regularization ablation: raw Pearson FC and the whole v11.0
 architecture remain unchanged; only the auxiliary Tangent branch uses a more
 strongly shrunk positive-definite FC matrix.
 
+v6.6-FZ v6.6 with a GPU Fisher r-to-z transform before signed-edge encoding:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v6_6_fz.yaml
+```
+
+Fisher-z is applied only to the raw FC tensor immediately before positive and
+negative edge extraction. It preserves every edge sign and leaves the v6.6
+multi-atlas energy-fusion architecture unchanged.
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

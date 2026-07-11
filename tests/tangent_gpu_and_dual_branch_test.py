@@ -88,6 +88,20 @@ def main():
             details["raw_graph_embedding"],
             atol=1e-6,
         )
+
+    fisher_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.0,
+        temperature=1.0,
+        use_sample_gate=True,
+        use_fisher_z=True,
+    )
+    transformed = fisher_model.transform_raw_fc(batch["aal"])
+    assert torch.equal(torch.sign(transformed), torch.sign(batch["aal"]))
+    assert torch.isfinite(transformed).all()
+    assert fisher_model(batch)["fusion_logits"].shape == (4, 2)
     print("GPU Tangent and dual-branch test passed.")
 
 

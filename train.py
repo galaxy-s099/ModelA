@@ -155,6 +155,8 @@ def build_model(config):
                 1.0,
             ),
             use_tangent_branch=model_config.get("use_tangent_branch", False),
+            use_fisher_z=model_config.get("use_fisher_z", False),
+            fisher_z_clip=model_config.get("fisher_z_clip", 0.999999),
         )
 
     return SMAFProposalNet(
