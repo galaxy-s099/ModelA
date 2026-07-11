@@ -502,6 +502,18 @@ to those probabilities, then fuses predictions from base classifiers refit on
 the full outer training fold. The output CSV also records uniform-fusion
 metrics for the same outer-fold base predictions.
 
+v11.0 v6.6 with a fold-local GPU Tangent Pearson branch per atlas:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v11_0.yaml
+```
+
+v11.0 preserves the v6.6 signed-edge encoders, three branch classifiers,
+sample-adaptive energy fusion, branch loss, and late checkpoint probability
+ensemble. Each atlas additionally receives a Tangent Pearson FC matrix whose
+reference is fitted only on the current outer training fold. Tangent feature
+construction uses `torch.linalg.eigh` on CUDA when a GPU is available.
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

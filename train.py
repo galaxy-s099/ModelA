@@ -8,6 +8,7 @@ from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
 from torch.utils.data import DataLoader
 
 from data.abide_dataset import ABIDEMultiAtlasDataset, load_labels, load_site_count
+from data.tangent_fc import build_fold_tangent_matrices
 from models.losses import ProposalLoss
 from models.smaf_edge_energy_net import SMAFEdgeEnergyNet
 from models.smaf_edge_gated_proposal_net import SMAFEdgeGatedProposalNet
@@ -153,6 +154,7 @@ def build_model(config):
                 "site_adversarial_grl_lambda",
                 1.0,
             ),
+            use_tangent_branch=model_config.get("use_tangent_branch", False),
         )
 
     return SMAFProposalNet(
@@ -570,34 +572,57 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         selection_config,
     )
 
+    tangent_matrices = None
+    if config["model"].get("use_tangent_branch", False):
+        print(f"Building fold-local Tangent Pearson matrices on {device}...")
+        tangent_matrices = build_fold_tangent_matrices(
+            data_root=data_root,
+            atlas_specs=fold_atlas_specs,
+            fit_indices=train_sub_idx,
+            device=device,
+            tangent_config=config.get("tangent", {}),
+        )
+
     def attach_selection_stats(metrics):
         if selection_stats:
             metrics.update(selection_stats)
         return metrics
 
+    def build_dataset(indices):
+        return ABIDEMultiAtlasDataset(
+            data_root,
+            fold_atlas_specs,
+            indices,
+            tangent_matrices=tangent_matrices,
+        )
+
     train_loader = DataLoader(
-        ABIDEMultiAtlasDataset(data_root, fold_atlas_specs, train_sub_idx),
+        build_dataset(train_sub_idx),
         batch_size=train_config["batch_size"],
         shuffle=True,
+        pin_memory=device == "cuda",
     )
     train_eval_loader = None
     if train_config.get("search_train_threshold", False):
         train_eval_loader = DataLoader(
-            ABIDEMultiAtlasDataset(data_root, fold_atlas_specs, train_sub_idx),
+            build_dataset(train_sub_idx),
             batch_size=train_config["batch_size"],
             shuffle=False,
+            pin_memory=device == "cuda",
         )
     test_loader = DataLoader(
-        ABIDEMultiAtlasDataset(data_root, fold_atlas_specs, test_idx),
+        build_dataset(test_idx),
         batch_size=train_config["batch_size"],
         shuffle=False,
+        pin_memory=device == "cuda",
     )
     val_loader = None
     if val_idx is not None:
         val_loader = DataLoader(
-            ABIDEMultiAtlasDataset(data_root, fold_atlas_specs, val_idx),
+            build_dataset(val_idx),
             batch_size=train_config["batch_size"],
             shuffle=False,
+            pin_memory=device == "cuda",
         )
 
     fold_config = deepcopy(config)

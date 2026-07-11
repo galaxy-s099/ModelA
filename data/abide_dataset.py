@@ -15,7 +15,7 @@ class ABIDEMultiAtlasDataset(Dataset):
     BOLD/ROI features with shape samples x nodes x feature_dim.
     """
 
-    def __init__(self, data_root, atlas_specs, indices=None):
+    def __init__(self, data_root, atlas_specs, indices=None, tangent_matrices=None):
         self.data_root = Path(data_root)
         self.atlas_specs = OrderedDict(atlas_specs)
         self.labels = np.load(self.data_root / "labels.npy").astype(np.int64)
@@ -34,6 +34,7 @@ class ABIDEMultiAtlasDataset(Dataset):
                 _, encoded_site_ids = np.unique(raw_site_ids, return_inverse=True)
                 self.site_ids = encoded_site_ids.astype(np.int64)
         self.fc_matrices = {}
+        self.tangent_matrices = {}
         self.edge_masks = {}
         self.node_features = {}
 
@@ -55,6 +56,19 @@ class ABIDEMultiAtlasDataset(Dataset):
                 )
 
             self.fc_matrices[atlas_name] = fc
+            if tangent_matrices is not None and atlas_name in tangent_matrices:
+                tangent = np.asarray(tangent_matrices[atlas_name])
+                if tangent.shape != fc.shape:
+                    raise ValueError(
+                        f"{atlas_name}: tangent FC shape {tangent.shape} does not "
+                        f"match raw FC shape {fc.shape}"
+                    )
+                if not np.isfinite(tangent).all():
+                    raise ValueError(f"{atlas_name}: tangent FC contains non-finite values")
+                self.tangent_matrices[atlas_name] = tangent.astype(
+                    np.float32,
+                    copy=False,
+                )
             edge_mask = spec.get("edge_mask")
             if edge_mask is not None:
                 edge_mask = np.asarray(edge_mask, dtype=np.float32)
@@ -99,6 +113,12 @@ class ABIDEMultiAtlasDataset(Dataset):
             if edge_mask is not None:
                 matrix = matrix * edge_mask
             sample[atlas_name] = torch.from_numpy(matrix)
+            tangent = self.tangent_matrices.get(atlas_name)
+            if tangent is not None:
+                # Tangent values are not correlations and must not be clipped.
+                sample[f"{atlas_name}_tangent"] = torch.from_numpy(
+                    tangent[real_index].astype(np.float32, copy=False)
+                )
 
         for atlas_name, features in self.node_features.items():
             node_features = np.asarray(features[real_index], dtype=np.float32).copy()

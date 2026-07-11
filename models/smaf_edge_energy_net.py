@@ -81,6 +81,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         use_site_adversarial=False,
         site_adversarial_hidden_dim=64,
         site_adversarial_grl_lambda=1.0,
+        use_tangent_branch=False,
     ):
         super().__init__()
         if temperature <= 0:
@@ -162,6 +163,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.site_embedding_dim = int(site_embedding_dim)
         self.site_adversarial_hidden_dim = int(site_adversarial_hidden_dim)
         self.site_adversarial_grl_lambda = float(site_adversarial_grl_lambda)
+        self.use_tangent_branch = bool(use_tangent_branch)
         self.embedding_dims = {}
         self.total_embedding_dim = 0
         self.total_conditioned_embedding_dim = 0
@@ -181,6 +183,8 @@ class SMAFEdgeEnergyNet(nn.Module):
             self.gradient_reversal = None
 
         self.encoders = nn.ModuleDict()
+        self.tangent_encoders = nn.ModuleDict()
+        self.tangent_adapters = nn.ModuleDict()
         self.classifiers = nn.ModuleDict()
         for atlas_name, spec in self.atlas_specs.items():
             atlas_config = self.atlas_overrides.get(atlas_name, {})
@@ -240,6 +244,31 @@ class SMAFEdgeEnergyNet(nn.Module):
                 edge_dropout=atlas_edge_dropout,
                 edge_topk_ratio=atlas_edge_topk_ratio,
             )
+            if self.use_tangent_branch:
+                self.tangent_encoders[atlas_name] = EdgeBranchEncoder(
+                    input_dim=input_dim,
+                    hidden_dim=atlas_hidden_dim,
+                    embedding_dim=atlas_embedding_dim,
+                    dropout=atlas_dropout,
+                    num_nodes=num_nodes,
+                    use_node_summary=False,
+                    use_edge_residual=False,
+                    edge_dropout=0.0,
+                    edge_topk_ratio=None,
+                )
+                adapter = nn.Linear(atlas_embedding_dim * 2, atlas_embedding_dim)
+                # Start exactly as the v6.6 raw-FC branch. The tangent pathway
+                # is introduced only as its adapter learns non-zero weights.
+                with torch.no_grad():
+                    adapter.weight.zero_()
+                    adapter.bias.zero_()
+                    adapter.weight[:, :atlas_embedding_dim].copy_(
+                        torch.eye(
+                            atlas_embedding_dim,
+                            dtype=adapter.weight.dtype,
+                        )
+                    )
+                self.tangent_adapters[atlas_name] = adapter
             classifier_input_dim = atlas_embedding_dim
             if self.use_site_embedding:
                 classifier_input_dim += self.site_embedding_dim
@@ -405,8 +434,26 @@ class SMAFEdgeEnergyNet(nn.Module):
                 )
             site_embedding = self.site_embedding(batch["site"])
         for atlas_name in self.atlas_names:
-            graph_embedding = self.encoders[atlas_name](batch[atlas_name])
-            branch_details[atlas_name] = {"graph_embedding": graph_embedding}
+            raw_graph_embedding = self.encoders[atlas_name](batch[atlas_name])
+            graph_embedding = raw_graph_embedding
+            branch_details[atlas_name] = {
+                "raw_graph_embedding": raw_graph_embedding,
+            }
+            if self.use_tangent_branch:
+                tangent_key = f"{atlas_name}_tangent"
+                if tangent_key not in batch:
+                    raise ValueError(
+                        f"Batch is missing {tangent_key} while use_tangent_branch "
+                        "is true"
+                    )
+                tangent_embedding = self.tangent_encoders[atlas_name](
+                    batch[tangent_key]
+                )
+                graph_embedding = self.tangent_adapters[atlas_name](
+                    torch.cat([raw_graph_embedding, tangent_embedding], dim=-1)
+                )
+                branch_details[atlas_name]["tangent_embedding"] = tangent_embedding
+            branch_details[atlas_name]["graph_embedding"] = graph_embedding
             graph_embeddings.append(graph_embedding)
             classifier_input = graph_embedding
             if site_embedding is not None:
