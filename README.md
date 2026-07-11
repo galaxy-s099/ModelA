@@ -545,6 +545,16 @@ Fisher-z is applied only to the raw FC tensor immediately before positive and
 negative edge extraction. It preserves every edge sign and leaves the v6.6
 multi-atlas energy-fusion architecture unchanged.
 
+v6.6-WD v6.6 with stronger weight decay (`5e-4` instead of `1e-4`):
+
+```bash
+python run_abide.py --config configs/abide_proposal_v6_6_wd.yaml
+```
+
+This is a training-regularization ablation only. The raw Pearson FC input,
+model, loss, optimizer type, and checkpoint probability ensemble are identical
+to v6.6.
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
