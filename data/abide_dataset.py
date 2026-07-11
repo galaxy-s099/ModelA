@@ -15,7 +15,14 @@ class ABIDEMultiAtlasDataset(Dataset):
     BOLD/ROI features with shape samples x nodes x feature_dim.
     """
 
-    def __init__(self, data_root, atlas_specs, indices=None, tangent_matrices=None):
+    def __init__(
+        self,
+        data_root,
+        atlas_specs,
+        indices=None,
+        tangent_matrices=None,
+        fc_overrides=None,
+    ):
         self.data_root = Path(data_root)
         self.atlas_specs = OrderedDict(atlas_specs)
         self.labels = np.load(self.data_root / "labels.npy").astype(np.int64)
@@ -34,6 +41,7 @@ class ABIDEMultiAtlasDataset(Dataset):
                 _, encoded_site_ids = np.unique(raw_site_ids, return_inverse=True)
                 self.site_ids = encoded_site_ids.astype(np.int64)
         self.fc_matrices = {}
+        self.fc_should_clip = {}
         self.tangent_matrices = {}
         self.edge_masks = {}
         self.node_features = {}
@@ -55,7 +63,28 @@ class ABIDEMultiAtlasDataset(Dataset):
                     f"label count {len(self.labels)}"
                 )
 
-            self.fc_matrices[atlas_name] = fc
+            fc_override = None
+            if fc_overrides is not None:
+                fc_override = fc_overrides.get(atlas_name)
+            if fc_override is not None:
+                fc_override = np.asarray(fc_override)
+                if fc_override.shape != fc.shape:
+                    raise ValueError(
+                        f"{atlas_name}: FC override shape {fc_override.shape} does "
+                        f"not match raw FC shape {fc.shape}"
+                    )
+                if not np.isfinite(fc_override).all():
+                    raise ValueError(
+                        f"{atlas_name}: FC override contains non-finite values"
+                    )
+                self.fc_matrices[atlas_name] = fc_override.astype(
+                    np.float32,
+                    copy=False,
+                )
+                self.fc_should_clip[atlas_name] = False
+            else:
+                self.fc_matrices[atlas_name] = fc
+                self.fc_should_clip[atlas_name] = True
             if tangent_matrices is not None and atlas_name in tangent_matrices:
                 tangent = np.asarray(tangent_matrices[atlas_name])
                 if tangent.shape != fc.shape:
@@ -108,7 +137,9 @@ class ABIDEMultiAtlasDataset(Dataset):
         real_index = self.indices[index]
         sample = {}
         for atlas_name, fc in self.fc_matrices.items():
-            matrix = np.clip(fc[real_index], -1.0, 1.0).astype(np.float32, copy=False)
+            matrix = fc[real_index].astype(np.float32, copy=False)
+            if self.fc_should_clip[atlas_name]:
+                matrix = np.clip(matrix, -1.0, 1.0)
             edge_mask = self.edge_masks.get(atlas_name)
             if edge_mask is not None:
                 matrix = matrix * edge_mask

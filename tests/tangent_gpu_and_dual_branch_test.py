@@ -1,6 +1,7 @@
 """Verify GPU/CPU Tangent preprocessing and the v11 dual-branch interface."""
 
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from baselines.tangent_pearson import TangentPearsonTransformer
 from data.tangent_fc import GPUTangentPearsonTransformer
+from data.abide_dataset import ABIDEMultiAtlasDataset
 from models.smaf_edge_energy_net import SMAFEdgeEnergyNet
 
 
@@ -43,6 +45,21 @@ def main():
     upper = np.triu_indices(8, k=1)
     assert np.allclose(cpu_train, torch_train[:, upper[0], upper[1]], atol=2e-4)
     assert np.allclose(cpu_test, torch_test[:, upper[0], upper[1]], atol=2e-4)
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory)
+        np.save(path / "labels.npy", np.array([0, 1], dtype=np.int64))
+        raw = np.stack([make_correlation(30, 8), make_correlation(31, 8)])
+        tangent = raw.copy()
+        tangent[:, 0, 1] = tangent[:, 1, 0] = 2.5
+        np.save(path / "X_aal.npy", raw)
+        dataset = ABIDEMultiAtlasDataset(
+            path,
+            {"aal": {"num_nodes": 8, "fc_file": "X_aal.npy"}},
+            fc_overrides={"aal": tangent},
+        )
+        # Tangent values are intentionally not clipped to correlation bounds.
+        assert dataset[0]["aal"][0, 1].item() == 2.5
 
     torch.manual_seed(7)
     atlas_specs = {"aal": {"num_nodes": 8}, "cc200": {"num_nodes": 10}}

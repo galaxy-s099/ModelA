@@ -514,6 +514,17 @@ ensemble. Each atlas additionally receives a Tangent Pearson FC matrix whose
 reference is fitted only on the current outer training fold. Tangent feature
 construction uses `torch.linalg.eigh` on CUDA when a GPU is available.
 
+v11.1 v6.6 with raw FC fully replaced by fold-local GPU Tangent Pearson FC:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v11_1.yaml
+```
+
+v11.1 is a representation ablation of v11.0: the signed-edge encoder,
+energy fusion, sample gate, loss, and checkpoint ensemble are unchanged from
+v6.6, but every encoder receives Tangent FC as its only input. No raw-Pearson
+branch or dual-representation adapter is used.
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

@@ -572,8 +572,17 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         selection_config,
     )
 
+    use_tangent_branch = config["model"].get("use_tangent_branch", False)
+    use_tangent_fc_as_input = config["model"].get(
+        "use_tangent_fc_as_input",
+        False,
+    )
+    if use_tangent_branch and use_tangent_fc_as_input:
+        raise ValueError(
+            "use_tangent_branch and use_tangent_fc_as_input cannot both be true"
+        )
     tangent_matrices = None
-    if config["model"].get("use_tangent_branch", False):
+    if use_tangent_branch or use_tangent_fc_as_input:
         print(f"Building fold-local Tangent Pearson matrices on {device}...")
         tangent_matrices = build_fold_tangent_matrices(
             data_root=data_root,
@@ -593,7 +602,8 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             data_root,
             fold_atlas_specs,
             indices,
-            tangent_matrices=tangent_matrices,
+            tangent_matrices=(tangent_matrices if use_tangent_branch else None),
+            fc_overrides=(tangent_matrices if use_tangent_fc_as_input else None),
         )
 
     train_loader = DataLoader(
