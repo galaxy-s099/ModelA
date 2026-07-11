@@ -1,0 +1,35 @@
+# v10.1: outer-train OOF stacking on three Tangent Pearson atlas probabilities.
+data:
+  data_root: /kaggle/input/datasets/xingyushen666/abide-fc-three-atlas-new
+  atlases:
+    aal:
+      num_nodes: 116
+      fc_file: X_aal.npy
+    cc200:
+      num_nodes: 200
+      fc_file: X_cc200.npy
+    ho:
+      num_nodes: 111
+      fc_file: X_ho.npy
+
+train:
+  seeds: [0, 1, 2, 3, 4]
+  n_splits: 5
+  decision_threshold: 0.5
+
+tangent:
+  shrinkage: 0.05
+  eigenvalue_floor: 1.0e-6
+
+classifier:
+  C_values: [0.001, 0.01, 0.1, 1.0]
+  inner_splits: 3
+  max_iter: 3000
+  class_weight: null
+
+stacking:
+  # Generates outer-train OOF probabilities; outer-test data are never used here.
+  inner_splits: 3
+  meta_C: 0.1
+  meta_max_iter: 1000
+  meta_class_weight: null

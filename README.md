@@ -490,6 +490,18 @@ probabilities are averaged uniformly. It is intentionally independent from
 the SMAF model so its result answers whether the FC representation itself has
 more headroom than the raw Pearson edge input.
 
+v10.1 OOF-stacked Tangent Pearson atlas fusion:
+
+```bash
+python run_tangent_stacking.py --config configs/abide_tangent_stacking_v10_1.yaml
+```
+
+v10.1 uses only the outer training fold to generate out-of-fold probabilities
+for AAL, CC200, and HO. A three-feature L2 logistic meta-classifier is fitted
+to those probabilities, then fuses predictions from base classifiers refit on
+the full outer training fold. The output CSV also records uniform-fusion
+metrics for the same outer-fold base predictions.
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash
