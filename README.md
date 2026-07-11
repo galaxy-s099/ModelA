@@ -478,6 +478,18 @@ v9.4 v9.3 test-best potential check:
 python run_abide.py --config configs/abide_proposal_v9_4.yaml
 ```
 
+v10.0 fold-local Tangent Pearson + L2 logistic diagnostic baseline:
+
+```bash
+python run_tangent_logistic.py --config configs/abide_tangent_logistic_v10_0.yaml
+```
+
+v10.0 fits one Tangent Pearson reference matrix per atlas and outer training
+fold, then applies the fitted transform to its test fold. The three atlas
+probabilities are averaged uniformly. It is intentionally independent from
+the SMAF model so its result answers whether the FC representation itself has
+more headroom than the raw Pearson edge input.
+
 v1.3 confidence-regularization ablation (`lambda_reg = 0`):
 
 ```bash

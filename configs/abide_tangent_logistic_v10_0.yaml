@@ -1,0 +1,31 @@
+# v10.0: fold-local Tangent Pearson + L2 logistic diagnostic baseline.
+# The Tangent reference is fitted on each outer training fold only.
+data:
+  data_root: /kaggle/input/datasets/xingyushen666/abide-fc-three-atlas-new
+  atlases:
+    aal:
+      num_nodes: 116
+      fc_file: X_aal.npy
+    cc200:
+      num_nodes: 200
+      fc_file: X_cc200.npy
+    ho:
+      num_nodes: 111
+      fc_file: X_ho.npy
+
+train:
+  seeds: [0, 1, 2, 3, 4]
+  n_splits: 5
+  decision_threshold: 0.5
+
+tangent:
+  # Guarantees positive-definite FC matrices without using test-fold data.
+  shrinkage: 0.05
+  eigenvalue_floor: 1.0e-6
+
+classifier:
+  # Chosen within the outer training fold by CV AUC; the outer test fold is unseen.
+  C_values: [0.001, 0.01, 0.1, 1.0]
+  inner_splits: 3
+  max_iter: 3000
+  class_weight: null
