@@ -103,6 +103,7 @@ class EdgeBranchEncoder(nn.Module):
         edge_residual_scale=0.25,
         edge_dropout=0.0,
         edge_topk_ratio=None,
+        edge_projection_rank=None,
     ):
         super().__init__()
         if use_node_summary and num_nodes is None:
@@ -113,14 +114,29 @@ class EdgeBranchEncoder(nn.Module):
             raise ValueError("edge_dropout must be in [0, 1)")
         if edge_topk_ratio is not None and not 0.0 < edge_topk_ratio <= 1.0:
             raise ValueError("edge_topk_ratio must be in (0, 1]")
+        if edge_projection_rank is not None:
+            edge_projection_rank = int(edge_projection_rank)
+            if not 0 < edge_projection_rank < input_dim:
+                raise ValueError(
+                    "edge_projection_rank must be in (0, input_dim)"
+                )
 
         self.use_node_summary = use_node_summary
         self.use_edge_residual = use_edge_residual
         self.edge_residual_scale = edge_residual_scale
         self.edge_dropout = edge_dropout
         self.edge_topk_ratio = edge_topk_ratio
+        self.edge_projection_rank = edge_projection_rank
+        first_layer = (
+            nn.Sequential(
+                nn.Linear(input_dim, edge_projection_rank, bias=False),
+                nn.Linear(edge_projection_rank, hidden_dim),
+            )
+            if edge_projection_rank is not None
+            else nn.Linear(input_dim, hidden_dim)
+        )
         self.edge_encoder = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            first_layer,
             nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout),

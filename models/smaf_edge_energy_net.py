@@ -70,6 +70,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         edge_residual_scale=0.25,
         edge_dropout=0.0,
         edge_topk_ratio=None,
+        edge_projection_rank=None,
         atlas_dropout=0.0,
         atlas_dropout_mode="single",
         use_logit_meta_fusion=False,
@@ -152,6 +153,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.edge_residual_scale = edge_residual_scale
         self.edge_dropout = edge_dropout
         self.edge_topk_ratio = edge_topk_ratio
+        self.edge_projection_rank = edge_projection_rank
         self.atlas_dropout = atlas_dropout
         self.atlas_dropout_mode = atlas_dropout_mode
         self.use_logit_meta_fusion = use_logit_meta_fusion
@@ -233,6 +235,10 @@ class SMAFEdgeEnergyNet(nn.Module):
                 "edge_topk_ratio",
                 edge_topk_ratio,
             )
+            atlas_edge_projection_rank = atlas_config.get(
+                "edge_projection_rank",
+                edge_projection_rank,
+            )
             num_nodes = int(spec["num_nodes"])
             input_dim = num_nodes * (num_nodes - 1)
             self.encoders[atlas_name] = EdgeBranchEncoder(
@@ -249,6 +255,7 @@ class SMAFEdgeEnergyNet(nn.Module):
                 edge_residual_scale=atlas_edge_residual_scale,
                 edge_dropout=atlas_edge_dropout,
                 edge_topk_ratio=atlas_edge_topk_ratio,
+                edge_projection_rank=atlas_edge_projection_rank,
             )
             if self.use_tangent_branch:
                 self.tangent_encoders[atlas_name] = EdgeBranchEncoder(
@@ -261,6 +268,7 @@ class SMAFEdgeEnergyNet(nn.Module):
                     use_edge_residual=False,
                     edge_dropout=0.0,
                     edge_topk_ratio=None,
+                    edge_projection_rank=atlas_edge_projection_rank,
                 )
                 adapter = nn.Linear(atlas_embedding_dim * 2, atlas_embedding_dim)
                 # Start exactly as the v6.6 raw-FC branch. The tangent pathway

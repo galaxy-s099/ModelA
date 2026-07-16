@@ -193,6 +193,13 @@ v2.10 v2.2 structure with sample-adaptive atlas gate in energy fusion:
 python run_abide.py --config configs/abide_proposal_v2_10.yaml
 ```
 
+v12.0 retains the v6.6 signed-edge energy-fusion pipeline but replaces each
+atlas branch's large first edge MLP layer with a rank-64 factorized projection:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v12_0.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash

@@ -54,6 +54,33 @@ def main():
     assert embedding.shape == (4, 5)
     assert torch.isfinite(embedding).all()
 
+    low_rank_encoder = EdgeBranchEncoder(
+        input_dim=6,
+        hidden_dim=8,
+        embedding_dim=5,
+        dropout=0.1,
+        edge_projection_rank=3,
+    )
+    assert low_rank_encoder.edge_projection_rank == 3
+    assert isinstance(low_rank_encoder.edge_encoder[0], torch.nn.Sequential)
+    low_rank_embedding = low_rank_encoder(batch)
+    low_rank_embedding.sum().backward()
+    assert low_rank_embedding.shape == (4, 5)
+    assert torch.isfinite(low_rank_embedding).all()
+    assert low_rank_encoder.edge_encoder[0][0].weight.grad is not None
+
+    try:
+        EdgeBranchEncoder(
+            input_dim=6,
+            hidden_dim=8,
+            embedding_dim=5,
+            edge_projection_rank=6,
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected invalid edge_projection_rank to fail")
+
     baseline_encoder = EdgeBranchEncoder(
         input_dim=6,
         hidden_dim=8,
