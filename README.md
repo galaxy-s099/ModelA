@@ -215,6 +215,14 @@ self-attention and attention pooling:
 python run_abide.py --config configs/abide_proposal_v13_0.yaml
 ```
 
+v13.1 is the v13.0 test-best diagnostic. It uses the same 80-epoch
+single-checkpoint protocol as v6.3 to compare the oracle potential of the
+ROI-profile branch against the v6.6 core model without checkpoint ensembling:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v13_1.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
