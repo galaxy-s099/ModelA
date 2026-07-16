@@ -13,6 +13,7 @@ from models.edge_encoder import (
 
 
 def main():
+    torch.manual_seed(0)
     fc = torch.tensor(
         [
             [

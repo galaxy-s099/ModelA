@@ -200,6 +200,13 @@ atlas branch's large first edge MLP layer with a rank-64 factorized projection:
 python run_abide.py --config configs/abide_proposal_v12_0.yaml
 ```
 
+v12.1 tests atlas-specific low-rank projections (`AAL=64`, `CC200=128`,
+`HO=64`) while preserving the v6.6 training and fusion protocol:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v12_1.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
