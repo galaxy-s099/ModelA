@@ -214,6 +214,12 @@ potential of the atlas-specific low-rank edge projections:
 python run_abide.py --config configs/abide_proposal_v12_2.yaml
 ```
 
+v12.3 is the uniform rank-64 low-rank test-best diagnostic:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v12_3.yaml
+```
+
 v13.0 keeps the v6.6 signed-edge MLP intact and adds a zero-initialized
 residual branch that encodes each ROI's positive/negative FC profile using
 self-attention and attention pooling:
