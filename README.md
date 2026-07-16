@@ -207,6 +207,14 @@ v12.1 tests atlas-specific low-rank projections (`AAL=64`, `CC200=128`,
 python run_abide.py --config configs/abide_proposal_v12_1.yaml
 ```
 
+v13.0 keeps the v6.6 signed-edge MLP intact and adds a zero-initialized
+residual branch that encodes each ROI's positive/negative FC profile using
+self-attention and attention pooling:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v13_0.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash

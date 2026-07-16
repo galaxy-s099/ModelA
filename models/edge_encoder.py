@@ -85,6 +85,71 @@ def apply_fc_topk_sparsity(fc, topk_ratio):
     return sparse_fc
 
 
+class ROIProfileAttentionEncoder(nn.Module):
+    """Encode positive/negative ROI connectivity profiles with self-attention."""
+
+    def __init__(
+        self,
+        num_nodes,
+        embedding_dim,
+        profile_dim=64,
+        num_heads=4,
+        dropout=0.1,
+    ):
+        super().__init__()
+        if num_nodes < 2:
+            raise ValueError("num_nodes must be at least 2")
+        if profile_dim <= 0:
+            raise ValueError("profile_dim must be positive")
+        if num_heads <= 0 or profile_dim % num_heads != 0:
+            raise ValueError("profile_dim must be divisible by num_heads")
+        if not 0.0 <= dropout < 1.0:
+            raise ValueError("dropout must be in [0, 1)")
+
+        self.num_nodes = int(num_nodes)
+        self.profile_dim = int(profile_dim)
+        self.profile_encoder = nn.Sequential(
+            nn.Linear(2 * self.num_nodes, self.profile_dim),
+            nn.LayerNorm(self.profile_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
+        self.roi_embedding = nn.Parameter(
+            torch.zeros(1, self.num_nodes, self.profile_dim)
+        )
+        nn.init.normal_(self.roi_embedding, std=0.02)
+        self.self_attention = nn.MultiheadAttention(
+            self.profile_dim,
+            num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.attention_norm = nn.LayerNorm(self.profile_dim)
+        self.pool_score = nn.Linear(self.profile_dim, 1)
+        self.output = nn.Sequential(
+            nn.LayerNorm(self.profile_dim),
+            nn.Linear(self.profile_dim, embedding_dim),
+        )
+
+    def forward(self, fc):
+        if fc.ndim != 3 or fc.shape[-1] != fc.shape[-2]:
+            raise ValueError(f"Expected FC shape B x N x N, received {tuple(fc.shape)}")
+        if fc.shape[-1] != self.num_nodes:
+            raise ValueError(
+                f"Expected {self.num_nodes} ROI nodes, received {fc.shape[-1]}"
+            )
+
+        positive_profiles = torch.clamp(fc, min=0.0)
+        negative_profiles = torch.clamp(-fc, min=0.0)
+        profiles = torch.cat([positive_profiles, negative_profiles], dim=-1)
+        tokens = self.profile_encoder(profiles) + self.roi_embedding
+        attended_tokens, _ = self.self_attention(tokens, tokens, tokens, need_weights=False)
+        tokens = self.attention_norm(tokens + attended_tokens)
+        pool_weight = torch.softmax(self.pool_score(tokens), dim=1)
+        pooled = torch.sum(pool_weight * tokens, dim=1)
+        return self.output(pooled)
+
+
 class EdgeBranchEncoder(nn.Module):
     """Signed edge-vector atlas encoder used by the stronger SMAF-Net v5 branch."""
 

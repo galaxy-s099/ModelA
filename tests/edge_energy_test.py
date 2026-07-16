@@ -369,6 +369,45 @@ def main():
     node_summary_loss_details["loss"].backward()
     assert torch.isfinite(node_summary_loss_details["loss"])
 
+    profile_attention_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.1,
+        temperature=1.0,
+        use_sample_gate=True,
+        use_roi_profile_attention=True,
+        roi_profile_dim=8,
+        roi_profile_num_heads=2,
+        roi_profile_dropout=0.0,
+        roi_profile_residual_scale=0.25,
+    )
+    profile_attention_model.load_state_dict(
+        sample_gate_model.state_dict(),
+        strict=False,
+    )
+    sample_gate_model.eval()
+    profile_attention_model.eval()
+    with torch.no_grad():
+        sample_gate_baseline = sample_gate_model(batch)
+        profile_attention_output = profile_attention_model(batch)
+    assert torch.allclose(
+        sample_gate_baseline["fusion_logits"],
+        profile_attention_output["fusion_logits"],
+        atol=1e-6,
+    )
+    assert all(
+        "roi_profile_embedding"
+        in profile_attention_output["branch_details"][atlas_name]
+        for atlas_name in atlas_specs
+    )
+    profile_attention_model.train()
+    profile_attention_output = profile_attention_model(batch)
+    profile_attention_loss_details = criterion(profile_attention_output, labels)
+    profile_attention_loss_details["loss"].backward()
+    assert torch.isfinite(profile_attention_loss_details["loss"])
+    assert profile_attention_model.roi_profile_adapters["aal"].weight.grad is not None
+
     edge_residual_model = SMAFEdgeEnergyNet(
         atlas_specs=atlas_specs,
         hidden_dim=16,

@@ -129,6 +129,20 @@ def build_model(config):
             edge_dropout=model_config.get("edge_dropout", 0.0),
             edge_topk_ratio=model_config.get("edge_topk_ratio"),
             edge_projection_rank=model_config.get("edge_projection_rank"),
+            use_roi_profile_attention=model_config.get(
+                "use_roi_profile_attention",
+                False,
+            ),
+            roi_profile_dim=model_config.get("roi_profile_dim", 64),
+            roi_profile_num_heads=model_config.get(
+                "roi_profile_num_heads",
+                4,
+            ),
+            roi_profile_dropout=model_config.get("roi_profile_dropout", 0.1),
+            roi_profile_residual_scale=model_config.get(
+                "roi_profile_residual_scale",
+                0.25,
+            ),
             atlas_dropout=model_config.get("atlas_dropout", 0.0),
             atlas_dropout_mode=model_config.get("atlas_dropout_mode", "single"),
             use_logit_meta_fusion=model_config.get(

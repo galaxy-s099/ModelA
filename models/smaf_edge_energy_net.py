@@ -3,7 +3,7 @@ from collections import OrderedDict
 import torch
 import torch.nn as nn
 
-from models.edge_encoder import EdgeBranchEncoder
+from models.edge_encoder import EdgeBranchEncoder, ROIProfileAttentionEncoder
 
 
 class GradientReversalFunction(torch.autograd.Function):
@@ -71,6 +71,11 @@ class SMAFEdgeEnergyNet(nn.Module):
         edge_dropout=0.0,
         edge_topk_ratio=None,
         edge_projection_rank=None,
+        use_roi_profile_attention=False,
+        roi_profile_dim=64,
+        roi_profile_num_heads=4,
+        roi_profile_dropout=0.1,
+        roi_profile_residual_scale=0.25,
         atlas_dropout=0.0,
         atlas_dropout_mode="single",
         use_logit_meta_fusion=False,
@@ -105,6 +110,10 @@ class SMAFEdgeEnergyNet(nn.Module):
             raise ValueError("consensus_gate_scale must be non-negative")
         if not 0.0 <= atlas_dropout <= 1.0:
             raise ValueError("atlas_dropout must be in [0, 1]")
+        if roi_profile_residual_scale < 0:
+            raise ValueError(
+                "roi_profile_residual_scale must be non-negative"
+            )
         if atlas_dropout_mode not in {"single", "independent"}:
             raise ValueError(
                 "atlas_dropout_mode must be either single or independent"
@@ -154,6 +163,12 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.edge_dropout = edge_dropout
         self.edge_topk_ratio = edge_topk_ratio
         self.edge_projection_rank = edge_projection_rank
+        self.use_roi_profile_attention = bool(use_roi_profile_attention)
+        self.roi_profile_dim = int(roi_profile_dim)
+        self.roi_profile_num_heads = int(roi_profile_num_heads)
+        self.roi_profile_dropout = float(roi_profile_dropout)
+        self.roi_profile_residual_scale = float(roi_profile_residual_scale)
+        self.roi_profile_residual_scales = {}
         self.atlas_dropout = atlas_dropout
         self.atlas_dropout_mode = atlas_dropout_mode
         self.use_logit_meta_fusion = use_logit_meta_fusion
@@ -193,6 +208,8 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.encoders = nn.ModuleDict()
         self.tangent_encoders = nn.ModuleDict()
         self.tangent_adapters = nn.ModuleDict()
+        self.roi_profile_encoders = nn.ModuleDict()
+        self.roi_profile_adapters = nn.ModuleDict()
         self.classifiers = nn.ModuleDict()
         for atlas_name, spec in self.atlas_specs.items():
             atlas_config = self.atlas_overrides.get(atlas_name, {})
@@ -239,6 +256,33 @@ class SMAFEdgeEnergyNet(nn.Module):
                 "edge_projection_rank",
                 edge_projection_rank,
             )
+            atlas_use_roi_profile_attention = bool(
+                atlas_config.get(
+                    "use_roi_profile_attention",
+                    self.use_roi_profile_attention,
+                )
+            )
+            atlas_roi_profile_dim = int(
+                atlas_config.get("roi_profile_dim", self.roi_profile_dim)
+            )
+            atlas_roi_profile_num_heads = int(
+                atlas_config.get(
+                    "roi_profile_num_heads",
+                    self.roi_profile_num_heads,
+                )
+            )
+            atlas_roi_profile_dropout = float(
+                atlas_config.get(
+                    "roi_profile_dropout",
+                    self.roi_profile_dropout,
+                )
+            )
+            atlas_roi_profile_residual_scale = float(
+                atlas_config.get(
+                    "roi_profile_residual_scale",
+                    self.roi_profile_residual_scale,
+                )
+            )
             num_nodes = int(spec["num_nodes"])
             input_dim = num_nodes * (num_nodes - 1)
             self.encoders[atlas_name] = EdgeBranchEncoder(
@@ -257,6 +301,21 @@ class SMAFEdgeEnergyNet(nn.Module):
                 edge_topk_ratio=atlas_edge_topk_ratio,
                 edge_projection_rank=atlas_edge_projection_rank,
             )
+            if atlas_use_roi_profile_attention:
+                self.roi_profile_encoders[atlas_name] = ROIProfileAttentionEncoder(
+                    num_nodes=num_nodes,
+                    embedding_dim=atlas_embedding_dim,
+                    profile_dim=atlas_roi_profile_dim,
+                    num_heads=atlas_roi_profile_num_heads,
+                    dropout=atlas_roi_profile_dropout,
+                )
+                adapter = nn.Linear(atlas_embedding_dim, atlas_embedding_dim)
+                nn.init.zeros_(adapter.weight)
+                nn.init.zeros_(adapter.bias)
+                self.roi_profile_adapters[atlas_name] = adapter
+                self.roi_profile_residual_scales[atlas_name] = (
+                    atlas_roi_profile_residual_scale
+                )
             if self.use_tangent_branch:
                 self.tangent_encoders[atlas_name] = EdgeBranchEncoder(
                     input_dim=input_dim,
@@ -454,9 +513,8 @@ class SMAFEdgeEnergyNet(nn.Module):
                 )
             site_embedding = self.site_embedding(batch["site"])
         for atlas_name in self.atlas_names:
-            raw_graph_embedding = self.encoders[atlas_name](
-                self.transform_raw_fc(batch[atlas_name])
-            )
+            transformed_fc = self.transform_raw_fc(batch[atlas_name])
+            raw_graph_embedding = self.encoders[atlas_name](transformed_fc)
             graph_embedding = raw_graph_embedding
             branch_details[atlas_name] = {
                 "raw_graph_embedding": raw_graph_embedding,
@@ -475,6 +533,17 @@ class SMAFEdgeEnergyNet(nn.Module):
                     torch.cat([raw_graph_embedding, tangent_embedding], dim=-1)
                 )
                 branch_details[atlas_name]["tangent_embedding"] = tangent_embedding
+            if atlas_name in self.roi_profile_encoders:
+                roi_profile_embedding = self.roi_profile_encoders[atlas_name](
+                    transformed_fc
+                )
+                graph_embedding = graph_embedding + (
+                    self.roi_profile_residual_scales[atlas_name]
+                    * self.roi_profile_adapters[atlas_name](roi_profile_embedding)
+                )
+                branch_details[atlas_name][
+                    "roi_profile_embedding"
+                ] = roi_profile_embedding
             branch_details[atlas_name]["graph_embedding"] = graph_embedding
             graph_embeddings.append(graph_embedding)
             classifier_input = graph_embedding

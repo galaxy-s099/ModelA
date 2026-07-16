@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from models.edge_encoder import (
     EdgeBranchEncoder,
+    ROIProfileAttentionEncoder,
     apply_fc_topk_sparsity,
     fc_to_node_summary,
 )
@@ -69,6 +70,19 @@ def main():
     assert low_rank_embedding.shape == (4, 5)
     assert torch.isfinite(low_rank_embedding).all()
     assert low_rank_encoder.edge_encoder[0][0].weight.grad is not None
+
+    profile_encoder = ROIProfileAttentionEncoder(
+        num_nodes=3,
+        embedding_dim=5,
+        profile_dim=4,
+        num_heads=2,
+        dropout=0.1,
+    )
+    profile_embedding = profile_encoder(batch)
+    profile_embedding.sum().backward()
+    assert profile_embedding.shape == (4, 5)
+    assert torch.isfinite(profile_embedding).all()
+    assert profile_encoder.profile_encoder[0].weight.grad is not None
 
     try:
         EdgeBranchEncoder(
