@@ -265,6 +265,13 @@ confidence-weighted probability fusion:
 python run_abide.py --config configs/abide_proposal_v13_4.yaml
 ```
 
+v13.5 removes v13.4's epoch-35 anchor to isolate the dense early checkpoint
+platform under the same confidence-weighted fusion:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v13_5.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
