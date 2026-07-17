@@ -1080,6 +1080,7 @@ def run_repeated_cv(config):
     data_root = config["data"]["data_root"]
     labels = load_labels(data_root)
     train_config = config["train"]
+    test_top_k_epochs = int(train_config.get("test_top_k_epochs", 0))
     device = "cuda" if torch.cuda.is_available() else "cpu"
     all_results = []
 
