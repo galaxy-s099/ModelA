@@ -279,6 +279,13 @@ isolate the effect of confidence-weighted fusion:
 python run_abide.py --config configs/abide_proposal_v13_6.yaml
 ```
 
+v13.7 uses six sparse representatives of the v13.5 early platform to test
+whether dense adjacent checkpoints add correlated ensemble noise:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v13_7.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
