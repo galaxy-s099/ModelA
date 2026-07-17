@@ -236,6 +236,13 @@ ROI-profile branch against the v6.6 core model without checkpoint ensembling:
 python run_abide.py --config configs/abide_proposal_v13_1.yaml
 ```
 
+v13.2 is the reportable v13 ROI-profile experiment. It uses a fixed uniform
+probability ensemble over checkpoints 5 through 55 at five-epoch intervals:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v13_2.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
