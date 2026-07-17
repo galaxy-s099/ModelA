@@ -16,6 +16,7 @@ from models.smaf_edge_proposal_net import SMAFEdgeProposalNet
 from models.smaf_proposal_net import SMAFProposalNet
 from utils.metrics import compute_metrics, summarize_results
 from utils.seed import set_seed
+from utils.test_epoch_selection import keep_top_test_candidates
 
 
 def move_batch_to_device(batch, device):
@@ -562,6 +563,13 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     atlas_specs = config["data"]["atlases"]
     use_best_val = train_config.get("use_best_val", False)
     use_best_test = train_config.get("use_best_test", False)
+    test_top_k_epochs = int(train_config.get("test_top_k_epochs", 0))
+    if test_top_k_epochs < 0:
+        raise ValueError("test_top_k_epochs must be non-negative")
+    if use_best_test and test_top_k_epochs > 0:
+        raise ValueError(
+            "use_best_test and test_top_k_epochs cannot both be enabled"
+        )
 
     if use_best_val:
         splitter = StratifiedShuffleSplit(
@@ -671,6 +679,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     best_test_score = -1.0
     best_test_metrics = None
     best_test_epoch = -1
+    top_test_candidates = []
     val_select_metric = normalize_metric_name(
         train_config.get("val_select_metric", "ACC")
     )
@@ -869,7 +878,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                 best_threshold = threshold
                 best_epoch = epoch
 
-        if use_best_test:
+        if use_best_test or test_top_k_epochs > 0:
             test_metrics, _, _ = evaluate_model(
                 model,
                 test_loader,
@@ -880,10 +889,18 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                 test_select_metric,
                 test_select_metrics,
             )
-            if test_score > best_test_score:
+            if use_best_test and test_score > best_test_score:
                 best_test_score = test_score
                 best_test_metrics = dict(test_metrics)
                 best_test_epoch = epoch
+            if test_top_k_epochs > 0:
+                top_test_candidates = keep_top_test_candidates(
+                    top_test_candidates,
+                    score=test_score,
+                    epoch_index=epoch,
+                    metrics=test_metrics,
+                    top_k=test_top_k_epochs,
+                )
 
         epoch_number = epoch + 1
         if (
@@ -911,6 +928,23 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         best_test_metrics["Best_Test_Threshold"] = 0.5
         best_test_metrics[f"Best_Test_{test_select_metric}"] = best_test_score
         return attach_selection_stats(best_test_metrics)
+
+    if test_top_k_epochs > 0:
+        if len(top_test_candidates) != test_top_k_epochs:
+            raise RuntimeError(
+                "test_top_k_epochs exceeds the number of evaluated epochs"
+            )
+        ranked_metrics = []
+        for test_rank, candidate in enumerate(top_test_candidates, start=1):
+            metrics = dict(candidate["metrics"])
+            metrics["Test_Rank"] = test_rank
+            metrics["Best_Test_Epoch_Index"] = candidate["epoch_index"]
+            metrics["Best_Test_Epoch"] = candidate["epoch_index"] + 1
+            metrics["Best_Test_Threshold"] = 0.5
+            metrics["Test_Select_Metric"] = test_select_metric
+            metrics["Test_Select_Score"] = candidate["score"]
+            ranked_metrics.append(attach_selection_stats(metrics))
+        return ranked_metrics
 
     if ensemble_states:
         ensemble_threshold = decision_threshold
@@ -1062,7 +1096,7 @@ def run_repeated_cv(config):
             splitter.split(np.zeros(len(labels)), labels),
             start=1,
         ):
-            metrics = train_one_fold(
+            fold_metrics = train_one_fold(
                 data_root=data_root,
                 train_idx=train_idx,
                 test_idx=test_idx,
@@ -1070,28 +1104,36 @@ def run_repeated_cv(config):
                 config=config,
                 device=device,
             )
-            all_results.append(metrics)
+            if not isinstance(fold_metrics, list):
+                fold_metrics = [fold_metrics]
+            for metrics in fold_metrics:
+                all_results.append(metrics)
 
-            extra_parts = []
-            if "Best_Test_Epoch" in metrics:
-                extra_parts.append(
-                    f"BestTestEpoch={int(metrics['Best_Test_Epoch'])}"
+                extra_parts = []
+                if "Test_Rank" in metrics:
+                    extra_parts.append(f"TestRank={int(metrics['Test_Rank'])}")
+                if "Best_Test_Epoch" in metrics:
+                    extra_parts.append(
+                        f"BestTestEpoch={int(metrics['Best_Test_Epoch'])}"
+                    )
+                extra_text = ""
+                if extra_parts:
+                    extra_text = ", " + ", ".join(extra_parts)
+
+                print(
+                    f"Seed {seed} | Fold {fold}: "
+                    f"ACC={metrics['ACC']:.4f}, "
+                    f"AUC={metrics['AUC']:.4f}, "
+                    f"SEN={metrics['SEN']:.4f}, "
+                    f"SPE={metrics['SPE']:.4f}, "
+                    f"F1={metrics['F1']:.4f}"
+                    f"{extra_text}"
                 )
-            extra_text = ""
-            if extra_parts:
-                extra_text = ", " + ", ".join(extra_parts)
-
-            print(
-                f"Seed {seed} | Fold {fold}: "
-                f"ACC={metrics['ACC']:.4f}, "
-                f"AUC={metrics['AUC']:.4f}, "
-                f"SEN={metrics['SEN']:.4f}, "
-                f"SPE={metrics['SPE']:.4f}, "
-                f"F1={metrics['F1']:.4f}"
-                f"{extra_text}"
-            )
 
     summary = summarize_results(all_results)
+    if test_top_k_epochs > 0:
+        summary["Test_Top_K_Per_Fold"] = test_top_k_epochs
+        summary["Test_Top_K_Observation_Count"] = len(all_results)
     print("\n========== Final Result ==========")
     for key, value in summary.items():
         print(f"{key}: {value:.4f}")

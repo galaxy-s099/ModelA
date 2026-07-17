@@ -243,6 +243,14 @@ probability ensemble over checkpoints 5 through 55 at five-epoch intervals:
 python run_abide.py --config configs/abide_proposal_v13_2.yaml
 ```
 
+v13_test is an analysis-only run that records the top three Test ACC epochs
+per seed-fold. It writes 75 ranked rows, an epoch-frequency CSV, and a
+ten-epoch-bin distribution CSV:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v13_test.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
