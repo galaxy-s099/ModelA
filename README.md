@@ -251,6 +251,13 @@ ten-epoch-bin distribution CSV:
 python run_abide.py --config configs/abide_proposal_v13_test.yaml
 ```
 
+v13.3 uses the fixed early-platform checkpoint ensemble selected before its
+run from the v13_test density analysis:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v13_3.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
