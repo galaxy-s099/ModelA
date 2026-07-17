@@ -258,6 +258,13 @@ run from the v13_test density analysis:
 python run_abide.py --config configs/abide_proposal_v13_3.yaml
 ```
 
+v13.4 keeps the v13.3 checkpoint set but switches from uniform to per-sample
+confidence-weighted probability fusion:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v13_4.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
