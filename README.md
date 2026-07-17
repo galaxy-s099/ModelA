@@ -272,6 +272,13 @@ platform under the same confidence-weighted fusion:
 python run_abide.py --config configs/abide_proposal_v13_5.yaml
 ```
 
+v13.6 keeps v13.5's early-only checkpoints but restores uniform averaging to
+isolate the effect of confidence-weighted fusion:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v13_6.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
