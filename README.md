@@ -294,6 +294,13 @@ a learned gate for their feature fusion:
 python run_abide.py --config configs/abide_proposal_v14_0.yaml
 ```
 
+v14.1 is the single-checkpoint Test-best diagnostic for v14.0's dual-stream
+signed MLP. It measures potential only and is not a reportable main result:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v14_1.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
