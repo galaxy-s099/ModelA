@@ -308,6 +308,14 @@ dual-stream encoder, to diagnose a fixed checkpoint ensemble window:
 python run_abide.py --config configs/abide_proposal_v14_test.yaml
 ```
 
+v14.2 uses a fixed dual-window probability ensemble for the dual-stream
+encoder: early high-AUC checkpoints plus the frequent mid-training Top-1
+window identified by v14_test:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v14_2.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
