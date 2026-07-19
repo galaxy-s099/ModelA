@@ -301,6 +301,13 @@ signed MLP. It measures potential only and is not a reportable main result:
 python run_abide.py --config configs/abide_proposal_v14_1.yaml
 ```
 
+v14_test records the top three Test ACC epochs per seed-fold for the
+dual-stream encoder, to diagnose a fixed checkpoint ensemble window:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v14_test.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
