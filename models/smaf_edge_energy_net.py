@@ -71,6 +71,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         edge_dropout=0.0,
         edge_topk_ratio=None,
         edge_projection_rank=None,
+        use_dual_stream_signed_mlp=False,
         use_roi_profile_attention=False,
         roi_profile_dim=64,
         roi_profile_num_heads=4,
@@ -163,6 +164,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.edge_dropout = edge_dropout
         self.edge_topk_ratio = edge_topk_ratio
         self.edge_projection_rank = edge_projection_rank
+        self.use_dual_stream_signed_mlp = bool(use_dual_stream_signed_mlp)
         self.use_roi_profile_attention = bool(use_roi_profile_attention)
         self.roi_profile_dim = int(roi_profile_dim)
         self.roi_profile_num_heads = int(roi_profile_num_heads)
@@ -256,6 +258,12 @@ class SMAFEdgeEnergyNet(nn.Module):
                 "edge_projection_rank",
                 edge_projection_rank,
             )
+            atlas_use_dual_stream_signed_mlp = bool(
+                atlas_config.get(
+                    "use_dual_stream_signed_mlp",
+                    self.use_dual_stream_signed_mlp,
+                )
+            )
             atlas_use_roi_profile_attention = bool(
                 atlas_config.get(
                     "use_roi_profile_attention",
@@ -300,6 +308,7 @@ class SMAFEdgeEnergyNet(nn.Module):
                 edge_dropout=atlas_edge_dropout,
                 edge_topk_ratio=atlas_edge_topk_ratio,
                 edge_projection_rank=atlas_edge_projection_rank,
+                use_dual_stream_signed_mlp=atlas_use_dual_stream_signed_mlp,
             )
             if atlas_use_roi_profile_attention:
                 self.roi_profile_encoders[atlas_name] = ROIProfileAttentionEncoder(
@@ -328,6 +337,7 @@ class SMAFEdgeEnergyNet(nn.Module):
                     edge_dropout=0.0,
                     edge_topk_ratio=None,
                     edge_projection_rank=atlas_edge_projection_rank,
+                    use_dual_stream_signed_mlp=atlas_use_dual_stream_signed_mlp,
                 )
                 adapter = nn.Linear(atlas_embedding_dim * 2, atlas_embedding_dim)
                 # Start exactly as the v6.6 raw-FC branch. The tangent pathway

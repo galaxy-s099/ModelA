@@ -130,6 +130,10 @@ def build_model(config):
             edge_dropout=model_config.get("edge_dropout", 0.0),
             edge_topk_ratio=model_config.get("edge_topk_ratio"),
             edge_projection_rank=model_config.get("edge_projection_rank"),
+            use_dual_stream_signed_mlp=model_config.get(
+                "use_dual_stream_signed_mlp",
+                False,
+            ),
             use_roi_profile_attention=model_config.get(
                 "use_roi_profile_attention",
                 False,

@@ -71,6 +71,21 @@ def main():
     assert torch.isfinite(low_rank_embedding).all()
     assert low_rank_encoder.edge_encoder[0][0].weight.grad is not None
 
+    dual_stream_encoder = EdgeBranchEncoder(
+        input_dim=6,
+        hidden_dim=8,
+        embedding_dim=5,
+        dropout=0.1,
+        use_dual_stream_signed_mlp=True,
+    )
+    dual_stream_embedding = dual_stream_encoder(batch)
+    dual_stream_embedding.sum().backward()
+    assert dual_stream_embedding.shape == (4, 5)
+    assert torch.isfinite(dual_stream_embedding).all()
+    assert dual_stream_encoder.positive_edge_encoder[0].weight.grad is not None
+    assert dual_stream_encoder.negative_edge_encoder[0].weight.grad is not None
+    assert dual_stream_encoder.signed_fusion_gate[0].weight.grad is not None
+
     profile_encoder = ROIProfileAttentionEncoder(
         num_nodes=3,
         embedding_dim=5,

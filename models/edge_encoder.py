@@ -169,6 +169,7 @@ class EdgeBranchEncoder(nn.Module):
         edge_dropout=0.0,
         edge_topk_ratio=None,
         edge_projection_rank=None,
+        use_dual_stream_signed_mlp=False,
     ):
         super().__init__()
         if use_node_summary and num_nodes is None:
@@ -185,6 +186,12 @@ class EdgeBranchEncoder(nn.Module):
                 raise ValueError(
                     "edge_projection_rank must be in (0, input_dim)"
                 )
+        if use_dual_stream_signed_mlp and edge_projection_rank is not None:
+            raise ValueError(
+                "edge_projection_rank is not supported with dual-stream signed MLP"
+            )
+        if use_dual_stream_signed_mlp and input_dim % 2 != 0:
+            raise ValueError("dual-stream signed MLP requires an even input_dim")
 
         self.use_node_summary = use_node_summary
         self.use_edge_residual = use_edge_residual
@@ -192,25 +199,53 @@ class EdgeBranchEncoder(nn.Module):
         self.edge_dropout = edge_dropout
         self.edge_topk_ratio = edge_topk_ratio
         self.edge_projection_rank = edge_projection_rank
-        first_layer = (
-            nn.Sequential(
-                nn.Linear(input_dim, edge_projection_rank, bias=False),
-                nn.Linear(edge_projection_rank, hidden_dim),
+        self.use_dual_stream_signed_mlp = bool(use_dual_stream_signed_mlp)
+        if self.use_dual_stream_signed_mlp:
+            stream_input_dim = input_dim // 2
+
+            def make_stream_encoder():
+                return nn.Sequential(
+                    nn.Linear(stream_input_dim, hidden_dim),
+                    nn.BatchNorm1d(hidden_dim),
+                    nn.ReLU(),
+                    nn.Dropout(dropout),
+                    nn.Linear(hidden_dim, embedding_dim),
+                    nn.BatchNorm1d(embedding_dim),
+                    nn.ReLU(),
+                    nn.Dropout(dropout),
+                )
+
+            self.positive_edge_encoder = make_stream_encoder()
+            self.negative_edge_encoder = make_stream_encoder()
+            self.signed_fusion_gate = nn.Sequential(
+                nn.Linear(embedding_dim * 2, embedding_dim),
+                nn.Sigmoid(),
             )
-            if edge_projection_rank is not None
-            else nn.Linear(input_dim, hidden_dim)
-        )
-        self.edge_encoder = nn.Sequential(
-            first_layer,
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, embedding_dim),
-            nn.BatchNorm1d(embedding_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-        )
-        self.encoder = self.edge_encoder
+            self.edge_encoder = None
+            self.encoder = None
+        else:
+            first_layer = (
+                nn.Sequential(
+                    nn.Linear(input_dim, edge_projection_rank, bias=False),
+                    nn.Linear(edge_projection_rank, hidden_dim),
+                )
+                if edge_projection_rank is not None
+                else nn.Linear(input_dim, hidden_dim)
+            )
+            self.edge_encoder = nn.Sequential(
+                first_layer,
+                nn.BatchNorm1d(hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, embedding_dim),
+                nn.BatchNorm1d(embedding_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+            )
+            self.encoder = self.edge_encoder
+            self.positive_edge_encoder = None
+            self.negative_edge_encoder = None
+            self.signed_fusion_gate = None
         if self.use_node_summary:
             self.node_summary_encoder = nn.Sequential(
                 nn.Linear(3 * int(num_nodes), node_summary_hidden_dim),
@@ -253,7 +288,19 @@ class EdgeBranchEncoder(nn.Module):
                 p=self.edge_dropout,
                 training=self.training,
             )
-        edge_embedding = self.edge_encoder(edge_vector)
+        if self.use_dual_stream_signed_mlp:
+            positive_vector, negative_vector = edge_vector.chunk(2, dim=-1)
+            positive_embedding = self.positive_edge_encoder(positive_vector)
+            negative_embedding = self.negative_edge_encoder(negative_vector)
+            positive_gate = self.signed_fusion_gate(
+                torch.cat([positive_embedding, negative_embedding], dim=-1)
+            )
+            edge_embedding = (
+                positive_gate * positive_embedding
+                + (1.0 - positive_gate) * negative_embedding
+            )
+        else:
+            edge_embedding = self.edge_encoder(edge_vector)
         if self.edge_residual is not None:
             edge_embedding = (
                 edge_embedding

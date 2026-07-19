@@ -286,6 +286,14 @@ whether dense adjacent checkpoints add correlated ensemble noise:
 python run_abide.py --config configs/abide_proposal_v13_7.yaml
 ```
 
+v14.0 retains the v6.6 training and late-checkpoint ensemble protocol, while
+replacing the signed edge MLP with independent positive/negative streams and
+a learned gate for their feature fusion:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v14_0.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
