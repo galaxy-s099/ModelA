@@ -536,10 +536,23 @@ def combine_probability_ensemble(
     labels,
     decision_threshold,
     weighting="uniform",
+    consensus_temperature=0.15,
 ):
     stacked_probabilities = np.stack(ensemble_probabilities, axis=0)
     if weighting == "confidence":
         weights = np.abs(stacked_probabilities - 0.5) * 2.0
+    elif weighting == "consensus_confidence":
+        if consensus_temperature <= 0:
+            raise ValueError("checkpoint_consensus_temperature must be positive")
+
+        consensus = stacked_probabilities.mean(axis=0, keepdims=True)
+        confidence = np.abs(stacked_probabilities - 0.5) * 2.0
+        agreement = np.exp(
+            -np.abs(stacked_probabilities - consensus) / consensus_temperature
+        )
+        weights = confidence * agreement
+
+    if weighting in {"confidence", "consensus_confidence"}:
         weight_sum = weights.sum(axis=0)
         mean_probabilities = np.divide(
             (weights * stacked_probabilities).sum(axis=0),
@@ -552,7 +565,7 @@ def combine_probability_ensemble(
     else:
         raise ValueError(
             "Unsupported checkpoint_ensemble_weighting: "
-            f"{weighting}. Expected uniform or confidence."
+            f"{weighting}. Expected uniform, confidence, or consensus_confidence."
         )
 
     predictions = (mean_probabilities >= decision_threshold).astype(int)
@@ -872,6 +885,10 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         "checkpoint_ensemble_weighting",
         "uniform",
     )
+    checkpoint_consensus_temperature = train_config.get(
+        "checkpoint_consensus_temperature",
+        0.15,
+    )
     ensemble_states = []
     init_ensemble_seeds = train_config.get("init_ensemble_seeds")
 
@@ -951,6 +968,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                 run_labels,
                 decision_threshold,
                 checkpoint_ensemble_weighting,
+                checkpoint_consensus_temperature,
             )
             init_probabilities.append(run_mean_probabilities)
             if init_labels is None:
@@ -1122,6 +1140,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
                 train_ensemble_labels,
                 decision_threshold,
                 checkpoint_ensemble_weighting,
+                checkpoint_consensus_temperature,
             )
             ensemble_threshold, train_threshold_score = search_best_threshold(
                 train_ensemble_labels,
@@ -1153,6 +1172,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             ensemble_labels,
             ensemble_threshold,
             checkpoint_ensemble_weighting,
+            checkpoint_consensus_temperature,
         )
         metrics["Checkpoint_Ensemble_Count"] = len(ensemble_states)
         if checkpoint_ensemble_epochs is not None:

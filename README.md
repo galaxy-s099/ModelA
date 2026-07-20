@@ -325,6 +325,15 @@ Test fold is not used for model selection:
 python run_abide.py --config configs/abide_proposal_v14_3.yaml
 ```
 
+v14.4 keeps v14.2's fixed nine checkpoints but replaces uniform averaging
+with confidence-and-consensus weighting. A checkpoint is down-weighted when
+its probability disagrees with the other checkpoints for the same sample;
+this uses no labels and adds no training cost.
+
+```bash
+python run_abide.py --config configs/abide_proposal_v14_4.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
