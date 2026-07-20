@@ -560,6 +560,132 @@ def combine_probability_ensemble(
     return metrics, mean_probabilities
 
 
+def select_inner_cv_checkpoint_epochs(
+    data_root,
+    outer_train_idx,
+    seed,
+    config,
+    device,
+    labels,
+):
+    """Select final-training checkpoints using inner CV only.
+
+    The outer test fold is deliberately not constructed or evaluated here.
+    """
+    train_config = config["train"]
+    selection_config = train_config.get("inner_cv_checkpoint_selection", {})
+    if not selection_config.get("enabled", False):
+        return None, {}
+
+    if config.get("feature_selection", {}).get("supervised_edges", {}).get(
+        "enabled",
+        False,
+    ):
+        raise ValueError(
+            "inner CV checkpoint selection does not support supervised edge "
+            "selection yet"
+        )
+    if config["model"].get("use_tangent_branch", False) or config["model"].get(
+        "use_tangent_fc_as_input",
+        False,
+    ):
+        raise ValueError(
+            "inner CV checkpoint selection does not support fold-local Tangent FC"
+        )
+
+    inner_splits = int(selection_config.get("n_splits", 3))
+    top_k_epochs = int(selection_config.get("top_k_epochs", 6))
+    epochs = int(train_config["epochs"])
+    if inner_splits < 2:
+        raise ValueError("inner CV n_splits must be at least 2")
+    if not 0 < top_k_epochs <= epochs:
+        raise ValueError("inner CV top_k_epochs must be in [1, epochs]")
+
+    select_metric = normalize_metric_name(
+        selection_config.get("select_metric", "ACC")
+    )
+    select_metrics = selection_config.get("select_metrics")
+    atlas_specs = config["data"]["atlases"]
+    splitter = StratifiedKFold(
+        n_splits=inner_splits,
+        shuffle=True,
+        random_state=seed,
+    )
+    epoch_scores = [[] for _ in range(epochs)]
+
+    print(
+        f"Selecting {top_k_epochs} checkpoints with inner {inner_splits}-fold "
+        f"CV by {select_metric}..."
+    )
+    for inner_fold, (inner_train_local, inner_val_local) in enumerate(
+        splitter.split(np.zeros(len(outer_train_idx)), labels[outer_train_idx]),
+        start=1,
+    ):
+        inner_train_idx = outer_train_idx[inner_train_local]
+        inner_val_idx = outer_train_idx[inner_val_local]
+        set_seed(seed * 1000 + inner_fold)
+
+        train_loader = DataLoader(
+            ABIDEMultiAtlasDataset(data_root, atlas_specs, inner_train_idx),
+            batch_size=train_config["batch_size"],
+            shuffle=True,
+            pin_memory=device == "cuda",
+        )
+        val_loader = DataLoader(
+            ABIDEMultiAtlasDataset(data_root, atlas_specs, inner_val_idx),
+            batch_size=train_config["batch_size"],
+            shuffle=False,
+            pin_memory=device == "cuda",
+        )
+        model = build_model(config).to(device)
+        criterion = build_loss(config)
+        optimizer = torch.optim.Adam(
+            model.parameters(),
+            lr=train_config["lr"],
+            weight_decay=train_config["weight_decay"],
+        )
+
+        for epoch in range(epochs):
+            model.train()
+            for batch in train_loader:
+                batch = move_batch_to_device(batch, device)
+                optimizer.zero_grad()
+                output = model(batch)
+                loss_details = criterion(
+                    output,
+                    batch["label"],
+                    batch.get("site"),
+                )
+                loss_details["loss"].backward()
+                optimizer.step()
+
+            val_metrics, _, _ = evaluate_model(model, val_loader, device)
+            epoch_scores[epoch].append(
+                compute_validation_score(
+                    val_metrics,
+                    select_metric,
+                    select_metrics,
+                )
+            )
+
+    mean_scores = np.asarray([np.mean(scores) for scores in epoch_scores])
+    ranking = sorted(
+        range(epochs),
+        key=lambda epoch_index: (-mean_scores[epoch_index], epoch_index),
+    )
+    selected_epochs = [epoch_index + 1 for epoch_index in ranking[:top_k_epochs]]
+    stats = {
+        "Inner_CV_Folds": inner_splits,
+        "Inner_CV_Selected_Epochs": ",".join(map(str, sorted(selected_epochs))),
+        "Inner_CV_Selection_Metric": select_metric,
+        "Inner_CV_Mean_Selection_Score": float(
+            mean_scores[ranking[:top_k_epochs]].mean()
+        ),
+    }
+    print(f"Inner CV selected epochs: {stats['Inner_CV_Selected_Epochs']}")
+    return set(selected_epochs), stats
+
+
 def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     set_seed(seed)
     labels = load_labels(data_root)
@@ -574,6 +700,17 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         raise ValueError(
             "use_best_test and test_top_k_epochs cannot both be enabled"
         )
+
+    inner_cv_epochs, inner_cv_stats = select_inner_cv_checkpoint_epochs(
+        data_root=data_root,
+        outer_train_idx=train_idx,
+        seed=seed,
+        config=config,
+        device=device,
+        labels=labels,
+    )
+    # Inner model selection must not change the final outer-fold initialization.
+    set_seed(seed)
 
     if use_best_val:
         splitter = StratifiedShuffleSplit(
@@ -624,6 +761,8 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     def attach_selection_stats(metrics):
         if selection_stats:
             metrics.update(selection_stats)
+        if inner_cv_stats:
+            metrics.update(inner_cv_stats)
         return metrics
 
     def build_dataset(indices):
@@ -710,7 +849,10 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     checkpoint_average_interval = train_config.get("checkpoint_average_interval", 1)
     averaged_state = None
     averaged_state_count = 0
-    use_checkpoint_ensemble = train_config.get("checkpoint_ensemble", False)
+    use_checkpoint_ensemble = (
+        train_config.get("checkpoint_ensemble", False)
+        or inner_cv_epochs is not None
+    )
     checkpoint_ensemble_start = train_config.get("checkpoint_ensemble_start", 1)
     checkpoint_ensemble_interval = train_config.get("checkpoint_ensemble_interval", 1)
     checkpoint_ensemble_epochs = train_config.get("checkpoint_ensemble_epochs")
@@ -719,6 +861,13 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             int(epoch)
             for epoch in checkpoint_ensemble_epochs
         }
+    if inner_cv_epochs is not None:
+        if checkpoint_ensemble_epochs is not None:
+            raise ValueError(
+                "inner CV checkpoint selection cannot be combined with "
+                "checkpoint_ensemble_epochs"
+            )
+        checkpoint_ensemble_epochs = inner_cv_epochs
     checkpoint_ensemble_weighting = train_config.get(
         "checkpoint_ensemble_weighting",
         "uniform",

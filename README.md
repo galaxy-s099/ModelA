@@ -316,6 +316,15 @@ window identified by v14_test:
 python run_abide.py --config configs/abide_proposal_v14_2.yaml
 ```
 
+v14.3 uses nested checkpoint selection: each outer training fold runs an
+inner 3-fold CV to select six epochs by mean validation ACC, then retrains on
+the complete outer training fold and ensembles those checkpoints. The outer
+Test fold is not used for model selection:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v14_3.yaml
+```
+
 v3.0 v2.10 stage baseline with reduced sample gate scale:
 
 ```bash
