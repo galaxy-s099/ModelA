@@ -9,6 +9,7 @@ from models.edge_encoder import (
     EdgeBranchEncoder,
     ROIProfileAttentionEncoder,
     apply_fc_topk_sparsity,
+    fc_to_edge_vector,
     fc_to_node_summary,
 )
 
@@ -27,6 +28,10 @@ def main():
     summary = fc_to_node_summary(fc)
     expected = torch.tensor([[0.5, 2.0, 1.5, 1.0, 0.0, 1.0, 1.5, 2.0, 2.5]])
     assert torch.allclose(summary, expected)
+    assert torch.allclose(
+        fc_to_edge_vector(fc),
+        torch.tensor([[1.0, -2.0, 3.0]]),
+    )
 
     sparse_fc = apply_fc_topk_sparsity(fc, topk_ratio=1.0 / 3.0)
     expected_sparse_fc = torch.tensor(
@@ -55,6 +60,19 @@ def main():
     embedding = encoder(batch)
     assert embedding.shape == (4, 5)
     assert torch.isfinite(embedding).all()
+
+    unsigned_encoder = EdgeBranchEncoder(
+        input_dim=3,
+        hidden_dim=8,
+        embedding_dim=5,
+        dropout=0.1,
+        use_signed_edge_separation=False,
+    )
+    unsigned_embedding = unsigned_encoder(batch)
+    unsigned_embedding.sum().backward()
+    assert unsigned_embedding.shape == (4, 5)
+    assert torch.isfinite(unsigned_embedding).all()
+    assert unsigned_encoder.edge_encoder[0].weight.grad is not None
 
     low_rank_encoder = EdgeBranchEncoder(
         input_dim=6,

@@ -29,6 +29,21 @@ def fc_to_signed_edge_vector(fc):
     return torch.cat([positive_vector, negative_vector], dim=-1)
 
 
+def fc_to_edge_vector(fc):
+    """Return the raw signed upper-triangle FC edge vector."""
+    if fc.ndim != 3 or fc.shape[-1] != fc.shape[-2]:
+        raise ValueError(f"Expected FC shape B x N x N, received {tuple(fc.shape)}")
+
+    _, num_nodes, _ = fc.shape
+    edge_index = torch.triu_indices(
+        num_nodes,
+        num_nodes,
+        offset=1,
+        device=fc.device,
+    )
+    return fc[:, edge_index[0], edge_index[1]]
+
+
 def fc_to_node_summary(fc):
     """
     Summarize each ROI by positive, negative, and absolute connection strength.
@@ -151,7 +166,7 @@ class ROIProfileAttentionEncoder(nn.Module):
 
 
 class EdgeBranchEncoder(nn.Module):
-    """Signed edge-vector atlas encoder used by the stronger SMAF-Net v5 branch."""
+    """Atlas edge-vector encoder with an optional positive/negative split."""
 
     def __init__(
         self,
@@ -170,6 +185,7 @@ class EdgeBranchEncoder(nn.Module):
         edge_topk_ratio=None,
         edge_projection_rank=None,
         use_dual_stream_signed_mlp=False,
+        use_signed_edge_separation=True,
     ):
         super().__init__()
         if use_node_summary and num_nodes is None:
@@ -192,6 +208,10 @@ class EdgeBranchEncoder(nn.Module):
             )
         if use_dual_stream_signed_mlp and input_dim % 2 != 0:
             raise ValueError("dual-stream signed MLP requires an even input_dim")
+        if use_dual_stream_signed_mlp and not use_signed_edge_separation:
+            raise ValueError(
+                "dual-stream signed MLP requires signed edge separation"
+            )
 
         self.use_node_summary = use_node_summary
         self.use_edge_residual = use_edge_residual
@@ -200,6 +220,7 @@ class EdgeBranchEncoder(nn.Module):
         self.edge_topk_ratio = edge_topk_ratio
         self.edge_projection_rank = edge_projection_rank
         self.use_dual_stream_signed_mlp = bool(use_dual_stream_signed_mlp)
+        self.use_signed_edge_separation = bool(use_signed_edge_separation)
         if self.use_dual_stream_signed_mlp:
             stream_input_dim = input_dim // 2
 
@@ -281,7 +302,11 @@ class EdgeBranchEncoder(nn.Module):
 
     def forward(self, fc):
         fc = apply_fc_topk_sparsity(fc, self.edge_topk_ratio)
-        edge_vector = fc_to_signed_edge_vector(fc)
+        edge_vector = (
+            fc_to_signed_edge_vector(fc)
+            if self.use_signed_edge_separation
+            else fc_to_edge_vector(fc)
+        )
         if self.edge_dropout > 0:
             edge_vector = F.dropout(
                 edge_vector,

@@ -72,6 +72,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         edge_topk_ratio=None,
         edge_projection_rank=None,
         use_dual_stream_signed_mlp=False,
+        use_signed_edge_separation=True,
         use_roi_profile_attention=False,
         roi_profile_dim=64,
         roi_profile_num_heads=4,
@@ -165,6 +166,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.edge_topk_ratio = edge_topk_ratio
         self.edge_projection_rank = edge_projection_rank
         self.use_dual_stream_signed_mlp = bool(use_dual_stream_signed_mlp)
+        self.use_signed_edge_separation = bool(use_signed_edge_separation)
         self.use_roi_profile_attention = bool(use_roi_profile_attention)
         self.roi_profile_dim = int(roi_profile_dim)
         self.roi_profile_num_heads = int(roi_profile_num_heads)
@@ -292,7 +294,8 @@ class SMAFEdgeEnergyNet(nn.Module):
                 )
             )
             num_nodes = int(spec["num_nodes"])
-            input_dim = num_nodes * (num_nodes - 1)
+            edge_count = num_nodes * (num_nodes - 1) // 2
+            input_dim = edge_count * (2 if self.use_signed_edge_separation else 1)
             self.encoders[atlas_name] = EdgeBranchEncoder(
                 input_dim=input_dim,
                 hidden_dim=atlas_hidden_dim,
@@ -309,6 +312,7 @@ class SMAFEdgeEnergyNet(nn.Module):
                 edge_topk_ratio=atlas_edge_topk_ratio,
                 edge_projection_rank=atlas_edge_projection_rank,
                 use_dual_stream_signed_mlp=atlas_use_dual_stream_signed_mlp,
+                use_signed_edge_separation=self.use_signed_edge_separation,
             )
             if atlas_use_roi_profile_attention:
                 self.roi_profile_encoders[atlas_name] = ROIProfileAttentionEncoder(
@@ -338,6 +342,7 @@ class SMAFEdgeEnergyNet(nn.Module):
                     edge_topk_ratio=None,
                     edge_projection_rank=atlas_edge_projection_rank,
                     use_dual_stream_signed_mlp=atlas_use_dual_stream_signed_mlp,
+                    use_signed_edge_separation=self.use_signed_edge_separation,
                 )
                 adapter = nn.Linear(atlas_embedding_dim * 2, atlas_embedding_dim)
                 # Start exactly as the v6.6 raw-FC branch. The tangent pathway

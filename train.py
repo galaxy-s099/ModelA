@@ -134,6 +134,10 @@ def build_model(config):
                 "use_dual_stream_signed_mlp",
                 False,
             ),
+            use_signed_edge_separation=model_config.get(
+                "use_signed_edge_separation",
+                True,
+            ),
             use_roi_profile_attention=model_config.get(
                 "use_roi_profile_attention",
                 False,
