@@ -12,7 +12,11 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from train import evaluate_model
+from train import (
+    aggregate_checkpoint_diagnostics,
+    combine_probability_ensemble,
+    evaluate_model,
+)
 
 
 class DiagnosticToyModel(torch.nn.Module):
@@ -51,10 +55,11 @@ class DiagnosticToyModel(torch.nn.Module):
 
 def main():
     samples = [
-        {"label": torch.tensor(0, dtype=torch.long)},
-        {"label": torch.tensor(1, dtype=torch.long)},
-        {"label": torch.tensor(0, dtype=torch.long)},
-        {"label": torch.tensor(1, dtype=torch.long)},
+        {
+            "label": torch.tensor(label, dtype=torch.long),
+            "sample_index": torch.tensor(index, dtype=torch.long),
+        }
+        for index, label in enumerate([0, 1, 0, 1])
     ]
     dataloader = DataLoader(samples, batch_size=2, shuffle=False)
     metrics, probabilities, labels = evaluate_model(
@@ -73,6 +78,33 @@ def main():
     assert "BaseWeight_cc200" in metrics
     assert "GatedWeight_ho" in metrics
     assert "GateLogit_aal" in metrics
+
+    _, probabilities, labels, details = evaluate_model(
+        DiagnosticToyModel(),
+        dataloader,
+        device="cpu",
+        return_details=True,
+    )
+    assert details["sample_index"].tolist() == [0, 1, 2, 3]
+    assert details["atlas_weight"].shape == (4, 3)
+    assert details["branch_probability"].shape == (4, 3)
+    _, mean_probabilities, checkpoint_weights = combine_probability_ensemble(
+        [probabilities, probabilities],
+        labels,
+        decision_threshold=0.5,
+        return_weights=True,
+    )
+    aggregated = aggregate_checkpoint_diagnostics(
+        [details, details],
+        checkpoint_weights,
+        mean_probabilities,
+        decision_threshold=0.5,
+    )
+    assert aggregated["atlas_weight"].shape == (4, 3)
+    assert torch.allclose(
+        torch.from_numpy(aggregated["atlas_weight"].sum(axis=1)),
+        torch.ones(4),
+    )
 
     print("Evaluation diagnostics test passed.")
     print("Diagnostic columns:", len(metrics))

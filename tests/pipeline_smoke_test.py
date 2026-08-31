@@ -49,6 +49,9 @@ def main():
                 "lr": 1.0e-3,
                 "weight_decay": 1.0e-4,
                 "use_best_val": False,
+                "checkpoint_ensemble": True,
+                "checkpoint_ensemble_start": 1,
+                "checkpoint_ensemble_interval": 1,
             },
             "model": {
                 "hidden_dim": 16,
@@ -65,13 +68,30 @@ def main():
             },
         }
 
-        results, summary = run_repeated_cv(config)
+        results, summary, diagnostics = run_repeated_cv(
+            config,
+            return_diagnostics=True,
+        )
 
     assert len(results) == 2
     assert "ACC_mean" in summary
-    assert "Weight_aal" in results[0]
-    assert "Weight_cc200" in results[0]
-    assert "Weight_ho" in results[0]
+    assert len(diagnostics["sample_rows"]) == sample_count
+    assert len(diagnostics["checkpoint_rows"]) == sample_count
+    assert {
+        "sample_index",
+        "prediction_probability",
+        "weight_aal",
+        "weight_cc200",
+        "weight_ho",
+        "checkpoint_count",
+    }.issubset(diagnostics["sample_rows"][0])
+    for row in diagnostics["sample_rows"]:
+        assert np.isclose(
+            row["weight_aal"]
+            + row["weight_cc200"]
+            + row["weight_ho"],
+            1.0,
+        )
     print("Pipeline smoke test passed.")
 
 

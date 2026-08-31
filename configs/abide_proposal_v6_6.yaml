@@ -36,3 +36,6 @@ loss:
   lambda_reg: 0.1
   margin: 0.1
   regularization_mode: proposal_literal
+
+output:
+  export_sample_diagnostics: true

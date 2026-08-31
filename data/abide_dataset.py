@@ -156,6 +156,7 @@ class ABIDEMultiAtlasDataset(Dataset):
             sample[f"{atlas_name}_features"] = torch.from_numpy(node_features)
 
         sample["label"] = torch.tensor(self.labels[real_index], dtype=torch.long)
+        sample["sample_index"] = torch.tensor(real_index, dtype=torch.long)
         if self.site_ids is not None:
             sample["site"] = torch.tensor(
                 self.site_ids[real_index],

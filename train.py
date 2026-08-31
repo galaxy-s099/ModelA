@@ -437,7 +437,13 @@ def clone_state_dict(model):
     }
 
 
-def evaluate_model(model, dataloader, device, threshold=0.5):
+def evaluate_model(
+    model,
+    dataloader,
+    device,
+    threshold=0.5,
+    return_details=False,
+):
     model.eval()
     probabilities = []
     predictions = []
@@ -448,6 +454,7 @@ def evaluate_model(model, dataloader, device, threshold=0.5):
         "GatedWeight": [],
     }
     sample_gate_logits = []
+    sample_indices = []
     weighted_probabilities = []
     branch_probabilities = {
         atlas_name: []
@@ -463,6 +470,12 @@ def evaluate_model(model, dataloader, device, threshold=0.5):
             probabilities.extend(batch_probabilities.cpu().numpy())
             predictions.extend((batch_probabilities >= threshold).long().cpu().numpy())
             labels.extend(batch["label"].cpu().numpy())
+            if return_details:
+                if "sample_index" not in batch:
+                    raise ValueError(
+                        "return_details=True requires sample_index in every batch"
+                    )
+                sample_indices.extend(batch["sample_index"].cpu().numpy())
 
             weighted_logits = output.get("weighted_logits")
             if weighted_logits is not None:
@@ -532,19 +545,56 @@ def evaluate_model(model, dataloader, device, threshold=0.5):
         for atlas_name, gate_logit in zip(model.atlas_names, mean_gate_logits):
             metrics[f"GateLogit_{atlas_name}"] = float(gate_logit)
 
-    return metrics, probabilities, labels
+    if not return_details:
+        return metrics, probabilities, labels
+
+    details = {
+        "sample_index": np.asarray(sample_indices, dtype=np.int64),
+        "label": labels,
+        "probability": probabilities,
+        "prediction": predictions,
+        "decision_threshold": np.full(
+            probabilities.shape,
+            threshold,
+            dtype=np.float64,
+        ),
+    }
+    if weighted_probabilities:
+        details["weighted_probability"] = np.asarray(weighted_probabilities)
+    if branch_probabilities and all(branch_probabilities.values()):
+        details["branch_probability"] = np.column_stack(
+            [
+                np.asarray(branch_probabilities[atlas_name])
+                for atlas_name in model.atlas_names
+            ]
+        )
+    for metric_prefix, weight_batches in atlas_weight_outputs.items():
+        if weight_batches:
+            details_key = {
+                "Weight": "atlas_weight",
+                "BaseWeight": "base_atlas_weight",
+                "GatedWeight": "gated_atlas_weight",
+            }[metric_prefix]
+            details[details_key] = np.concatenate(weight_batches, axis=0)
+    if sample_gate_logits:
+        details["sample_gate_logits"] = np.concatenate(
+            sample_gate_logits,
+            axis=0,
+        )
+    details["atlas_names"] = list(model.atlas_names)
+    return metrics, probabilities, labels, details
 
 
-def combine_probability_ensemble(
+def compute_probability_ensemble_weights(
     ensemble_probabilities,
-    labels,
-    decision_threshold,
     weighting="uniform",
     consensus_temperature=0.15,
 ):
     stacked_probabilities = np.stack(ensemble_probabilities, axis=0)
-    if weighting == "confidence":
-        weights = np.abs(stacked_probabilities - 0.5) * 2.0
+    if weighting == "uniform":
+        raw_weights = np.ones_like(stacked_probabilities)
+    elif weighting == "confidence":
+        raw_weights = np.abs(stacked_probabilities - 0.5) * 2.0
     elif weighting == "consensus_confidence":
         if consensus_temperature <= 0:
             raise ValueError("checkpoint_consensus_temperature must be positive")
@@ -554,26 +604,149 @@ def combine_probability_ensemble(
         agreement = np.exp(
             -np.abs(stacked_probabilities - consensus) / consensus_temperature
         )
-        weights = confidence * agreement
-
-    if weighting in {"confidence", "consensus_confidence"}:
-        weight_sum = weights.sum(axis=0)
-        mean_probabilities = np.divide(
-            (weights * stacked_probabilities).sum(axis=0),
-            weight_sum,
-            out=stacked_probabilities.mean(axis=0),
-            where=weight_sum > 1e-12,
-        )
-    elif weighting == "uniform":
-        mean_probabilities = stacked_probabilities.mean(axis=0)
+        raw_weights = confidence * agreement
     else:
         raise ValueError(
             "Unsupported checkpoint_ensemble_weighting: "
             f"{weighting}. Expected uniform, confidence, or consensus_confidence."
         )
 
+    weight_sum = raw_weights.sum(axis=0, keepdims=True)
+    uniform_weights = np.full_like(
+        raw_weights,
+        1.0 / raw_weights.shape[0],
+    )
+    return np.divide(
+        raw_weights,
+        weight_sum,
+        out=uniform_weights,
+        where=weight_sum > 1e-12,
+    )
+
+
+def aggregate_checkpoint_diagnostics(
+    checkpoint_details,
+    checkpoint_weights,
+    mean_probabilities,
+    decision_threshold,
+):
+    if not checkpoint_details:
+        raise ValueError("checkpoint_details cannot be empty")
+
+    reference = checkpoint_details[0]
+    sample_indices = reference["sample_index"]
+    labels = reference["label"]
+    for details in checkpoint_details[1:]:
+        if not np.array_equal(details["sample_index"], sample_indices):
+            raise ValueError("Checkpoint diagnostics have different sample order")
+        if not np.array_equal(details["label"], labels):
+            raise ValueError("Checkpoint diagnostics have different labels")
+        if details["atlas_names"] != reference["atlas_names"]:
+            raise ValueError("Checkpoint diagnostics have different atlas order")
+
+    aggregated = {
+        "sample_index": sample_indices.copy(),
+        "label": labels.copy(),
+        "probability": np.asarray(mean_probabilities),
+        "prediction": (
+            np.asarray(mean_probabilities) >= decision_threshold
+        ).astype(np.int64),
+        "decision_threshold": np.full(
+            len(sample_indices),
+            decision_threshold,
+            dtype=np.float64,
+        ),
+        "atlas_names": list(reference["atlas_names"]),
+    }
+    aggregate_keys = [
+        "weighted_probability",
+        "branch_probability",
+        "atlas_weight",
+        "base_atlas_weight",
+        "gated_atlas_weight",
+        "sample_gate_logits",
+    ]
+    for key in aggregate_keys:
+        if not all(key in details for details in checkpoint_details):
+            continue
+        stacked_values = np.stack(
+            [details[key] for details in checkpoint_details],
+            axis=0,
+        )
+        value_weights = checkpoint_weights
+        while value_weights.ndim < stacked_values.ndim:
+            value_weights = value_weights[..., np.newaxis]
+        aggregated[key] = np.sum(value_weights * stacked_values, axis=0)
+
+    return aggregated
+
+
+def sample_diagnostics_to_rows(details):
+    atlas_names = details["atlas_names"]
+    sample_count = len(details["sample_index"])
+    rows = []
+    for sample_offset in range(sample_count):
+        row = {
+            "sample_index": int(details["sample_index"][sample_offset]),
+            "label": int(details["label"][sample_offset]),
+            "prediction_probability": float(
+                details["probability"][sample_offset]
+            ),
+            "prediction": int(details["prediction"][sample_offset]),
+            "decision_threshold": float(
+                details["decision_threshold"][sample_offset]
+            ),
+        }
+        scalar_keys = {
+            "weighted_probability": "weighted_probability",
+        }
+        for details_key, column_name in scalar_keys.items():
+            if details_key in details:
+                row[column_name] = float(
+                    details[details_key][sample_offset]
+                )
+
+        vector_keys = {
+            "branch_probability": "branch_probability",
+            "atlas_weight": "weight",
+            "base_atlas_weight": "base_weight",
+            "gated_atlas_weight": "gated_weight",
+            "sample_gate_logits": "gate_logit",
+        }
+        for details_key, column_prefix in vector_keys.items():
+            if details_key not in details:
+                continue
+            for atlas_index, atlas_name in enumerate(atlas_names):
+                row[f"{column_prefix}_{atlas_name}"] = float(
+                    details[details_key][sample_offset, atlas_index]
+                )
+        rows.append(row)
+    return rows
+
+
+def combine_probability_ensemble(
+    ensemble_probabilities,
+    labels,
+    decision_threshold,
+    weighting="uniform",
+    consensus_temperature=0.15,
+    return_weights=False,
+):
+    stacked_probabilities = np.stack(ensemble_probabilities, axis=0)
+    normalized_weights = compute_probability_ensemble_weights(
+        ensemble_probabilities,
+        weighting,
+        consensus_temperature,
+    )
+    mean_probabilities = np.sum(
+        normalized_weights * stacked_probabilities,
+        axis=0,
+    )
+
     predictions = (mean_probabilities >= decision_threshold).astype(int)
     metrics = compute_metrics(labels, mean_probabilities, predictions)
+    if return_weights:
+        return metrics, mean_probabilities, normalized_weights
     return metrics, mean_probabilities
 
 
@@ -703,7 +876,15 @@ def select_inner_cv_checkpoint_epochs(
     return set(selected_epochs), stats
 
 
-def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
+def train_one_fold(
+    data_root,
+    train_idx,
+    test_idx,
+    seed,
+    config,
+    device,
+    return_diagnostics=False,
+):
     set_seed(seed)
     labels = load_labels(data_root)
     train_config = config["train"]
@@ -716,6 +897,14 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
     if use_best_test and test_top_k_epochs > 0:
         raise ValueError(
             "use_best_test and test_top_k_epochs cannot both be enabled"
+        )
+    if return_diagnostics and (use_best_test or test_top_k_epochs > 0):
+        raise ValueError(
+            "Sample diagnostics are not supported by test-best selection modes"
+        )
+    if return_diagnostics and train_config.get("init_ensemble_seeds"):
+        raise ValueError(
+            "Sample diagnostics are not supported by initialization ensembles"
         )
 
     inner_cv_epochs, inner_cv_stats = select_inner_cv_checkpoint_epochs(
@@ -894,6 +1083,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         0.15,
     )
     ensemble_states = []
+    ensemble_epochs = []
     init_ensemble_seeds = train_config.get("init_ensemble_seeds")
 
     def should_collect_ensemble_checkpoint(epoch_number):
@@ -1094,6 +1284,7 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             and should_collect_ensemble_checkpoint(epoch_number)
         ):
             ensemble_states.append(clone_state_dict(model))
+            ensemble_epochs.append(epoch_number)
 
     if use_best_test:
         if best_test_metrics is None:
@@ -1158,26 +1349,38 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             )
 
         ensemble_probabilities = []
+        ensemble_details = []
         ensemble_labels = None
         for ensemble_state in ensemble_states:
             model.load_state_dict(ensemble_state)
-            _, probabilities, labels = evaluate_model(
+            evaluation = evaluate_model(
                 model,
                 test_loader,
                 device,
                 threshold=decision_threshold,
+                return_details=return_diagnostics,
             )
+            if return_diagnostics:
+                _, probabilities, labels, details = evaluation
+                ensemble_details.append(details)
+            else:
+                _, probabilities, labels = evaluation
             ensemble_probabilities.append(probabilities)
             if ensemble_labels is None:
                 ensemble_labels = labels
 
-        metrics, _ = combine_probability_ensemble(
+        ensemble_result = combine_probability_ensemble(
             ensemble_probabilities,
             ensemble_labels,
             ensemble_threshold,
             checkpoint_ensemble_weighting,
             checkpoint_consensus_temperature,
+            return_weights=return_diagnostics,
         )
+        if return_diagnostics:
+            metrics, mean_probabilities, checkpoint_weights = ensemble_result
+        else:
+            metrics, mean_probabilities = ensemble_result
         metrics["Checkpoint_Ensemble_Count"] = len(ensemble_states)
         if checkpoint_ensemble_epochs is not None:
             metrics["Checkpoint_Ensemble_Epochs"] = ",".join(
@@ -1197,7 +1400,39 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
             )
             if normalize_metric_name(threshold_score_metric) == "ACC":
                 metrics["Train_Threshold_ACC"] = train_threshold_score
-        return attach_selection_stats(metrics)
+        metrics = attach_selection_stats(metrics)
+        if not return_diagnostics:
+            return metrics
+
+        final_details = aggregate_checkpoint_diagnostics(
+            ensemble_details,
+            checkpoint_weights,
+            mean_probabilities,
+            ensemble_threshold,
+        )
+        sample_rows = sample_diagnostics_to_rows(final_details)
+        checkpoint_epoch_text = ",".join(map(str, ensemble_epochs))
+        for row in sample_rows:
+            row["checkpoint_count"] = len(ensemble_states)
+            row["checkpoint_epochs"] = checkpoint_epoch_text
+            row["checkpoint_weighting"] = checkpoint_ensemble_weighting
+
+        checkpoint_rows = []
+        for checkpoint_index, (epoch_number, details) in enumerate(
+            zip(ensemble_epochs, ensemble_details)
+        ):
+            rows = sample_diagnostics_to_rows(details)
+            for sample_offset, row in enumerate(rows):
+                row["checkpoint_epoch"] = epoch_number
+                row["checkpoint_contribution"] = float(
+                    checkpoint_weights[checkpoint_index, sample_offset]
+                )
+                checkpoint_rows.append(row)
+
+        return metrics, {
+            "sample_rows": sample_rows,
+            "checkpoint_rows": checkpoint_rows,
+        }
 
     if best_state is not None:
         model.load_state_dict(best_state)
@@ -1223,12 +1458,17 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         best_threshold = threshold
         best_val_score = train_acc
 
-    metrics, _, _ = evaluate_model(
+    evaluation = evaluate_model(
         model,
         test_loader,
         device,
         threshold=best_threshold,
+        return_details=return_diagnostics,
     )
+    if return_diagnostics:
+        metrics, _, _, final_details = evaluation
+    else:
+        metrics, _, _ = evaluation
     if best_state is not None:
         metrics["Best_Epoch"] = best_epoch
         metrics["Best_Threshold"] = best_threshold
@@ -1250,16 +1490,26 @@ def train_one_fold(data_root, train_idx, test_idx, seed, config, device):
         if normalize_metric_name(threshold_score_metric) == "ACC":
             metrics["Train_Threshold_ACC"] = best_val_score
 
-    return attach_selection_stats(metrics)
+    metrics = attach_selection_stats(metrics)
+    if return_diagnostics:
+        return metrics, {
+            "sample_rows": sample_diagnostics_to_rows(final_details),
+            "checkpoint_rows": [],
+        }
+    return metrics
 
 
-def run_repeated_cv(config):
+def run_repeated_cv(config, return_diagnostics=False):
     data_root = config["data"]["data_root"]
     labels = load_labels(data_root)
     train_config = config["train"]
     test_top_k_epochs = int(train_config.get("test_top_k_epochs", 0))
     device = "cuda" if torch.cuda.is_available() else "cpu"
     all_results = []
+    diagnostics = {
+        "sample_rows": [],
+        "checkpoint_rows": [],
+    }
 
     print("Device:", device)
     for seed in train_config["seeds"]:
@@ -1274,14 +1524,26 @@ def run_repeated_cv(config):
             splitter.split(np.zeros(len(labels)), labels),
             start=1,
         ):
-            fold_metrics = train_one_fold(
+            fold_result = train_one_fold(
                 data_root=data_root,
                 train_idx=train_idx,
                 test_idx=test_idx,
                 seed=seed * 100 + fold,
                 config=config,
                 device=device,
+                return_diagnostics=return_diagnostics,
             )
+            if return_diagnostics:
+                fold_metrics, fold_diagnostics = fold_result
+                for diagnostics_key in ["sample_rows", "checkpoint_rows"]:
+                    for row in fold_diagnostics[diagnostics_key]:
+                        row["seed"] = seed
+                        row["fold"] = fold
+                    diagnostics[diagnostics_key].extend(
+                        fold_diagnostics[diagnostics_key]
+                    )
+            else:
+                fold_metrics = fold_result
             if not isinstance(fold_metrics, list):
                 fold_metrics = [fold_metrics]
             for metrics in fold_metrics:
@@ -1316,4 +1578,6 @@ def run_repeated_cv(config):
     for key, value in summary.items():
         print(f"{key}: {value:.4f}")
 
+    if return_diagnostics:
+        return all_results, summary, diagnostics
     return all_results, summary
