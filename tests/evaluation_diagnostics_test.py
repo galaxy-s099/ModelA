@@ -16,6 +16,7 @@ from train import (
     aggregate_checkpoint_diagnostics,
     combine_probability_ensemble,
     evaluate_model,
+    sample_diagnostics_to_rows,
 )
 
 
@@ -23,6 +24,25 @@ class DiagnosticToyModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.atlas_names = ["aal", "cc200", "ho"]
+        self.reliability_mode = "centered_energy"
+
+    @staticmethod
+    def compute_reliability_diagnostics(logits):
+        centered_logits = logits - logits.mean(dim=-1, keepdim=True)
+        probabilities = torch.softmax(logits, dim=-1)
+        entropy = -torch.sum(
+            probabilities * torch.log(probabilities.clamp_min(1e-8)),
+            dim=-1,
+        )
+        return {
+            "branch_logit_mean": logits.mean(dim=-1),
+            "branch_logit_margin": torch.abs(logits[..., 1] - logits[..., 0]),
+            "raw_energy_score": torch.logsumexp(logits, dim=-1),
+            "centered_energy_score": torch.logsumexp(centered_logits, dim=-1),
+            "entropy_confidence": 1.0 - entropy / torch.log(
+                logits.new_tensor(2.0)
+            ),
+        }
 
     def forward(self, batch):
         labels = batch["label"].float()
@@ -41,11 +61,16 @@ class DiagnosticToyModel(torch.nn.Module):
             dtype=fusion_logits.dtype,
             device=fusion_logits.device,
         ).repeat(fusion_logits.shape[0], 1)
+        centered_logits = branch_logits - branch_logits.mean(
+            dim=-1,
+            keepdim=True,
+        )
 
         return {
             "fusion_logits": fusion_logits,
             "weighted_logits": weighted_logits,
             "branch_logits": branch_logits,
+            "reliability_score": torch.logsumexp(centered_logits, dim=-1),
             "atlas_weight": atlas_weight,
             "base_atlas_weight": atlas_weight,
             "gated_atlas_weight": atlas_weight,
@@ -88,6 +113,9 @@ def main():
     assert details["sample_index"].tolist() == [0, 1, 2, 3]
     assert details["atlas_weight"].shape == (4, 3)
     assert details["branch_probability"].shape == (4, 3)
+    assert details["branch_logits"].shape == (4, 3, 2)
+    assert details["centered_energy_score"].shape == (4, 3)
+    assert details["reliability_mode"] == "centered_energy"
     _, mean_probabilities, checkpoint_weights = combine_probability_ensemble(
         [probabilities, probabilities],
         labels,
@@ -101,10 +129,17 @@ def main():
         decision_threshold=0.5,
     )
     assert aggregated["atlas_weight"].shape == (4, 3)
+    assert aggregated["branch_logits"].shape == (4, 3, 2)
+    assert aggregated["reliability_score"].shape == (4, 3)
     assert torch.allclose(
         torch.from_numpy(aggregated["atlas_weight"].sum(axis=1)),
         torch.ones(4),
     )
+    rows = sample_diagnostics_to_rows(aggregated)
+    assert "branch_logit_class0_aal" in rows[0]
+    assert "branch_logit_class1_ho" in rows[0]
+    assert "centered_energy_score_cc200" in rows[0]
+    assert rows[0]["reliability_mode"] == "centered_energy"
 
     print("Evaluation diagnostics test passed.")
     print("Diagnostic columns:", len(metrics))

@@ -714,6 +714,23 @@ v1.1 raw atlas embedding concat ablation:
 python run_abide.py --config configs/abide_proposal_v1_1.yaml
 ```
 
+v16 reliability and loss audit based strictly on v6.6:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v16_0.yaml
+python run_abide.py --config configs/abide_proposal_v16_1.yaml
+python run_abide.py --config configs/abide_proposal_v16_2.yaml
+```
+
+The four-cell audit consists of the existing v6.6 result plus three new runs:
+v16.0 changes only raw Energy to shift-invariant centered Energy; v16.1 keeps
+raw Energy and sets `lambda_reg` to zero; v16.2 combines centered Energy with
+`lambda_reg = 0`. All data splits, training hyperparameters, branch encoders,
+sample gate, and predefined checkpoint probability ensemble remain identical
+to v6.6. Diagnostic CSVs additionally export both branch logits, their common
+mean and absolute margin, raw and centered Energy scores, entropy confidence,
+and the reliability score actually used for fusion.
+
 Short pipeline check on the real dataset:
 
 ```bash
@@ -725,6 +742,7 @@ Synthetic model smoke test:
 ```bash
 python tests/smoke_test.py
 python tests/loss_mode_test.py
+python tests/reliability_mode_test.py
 python tests/feature_concat_test.py
 python tests/raw_concat_test.py
 ```

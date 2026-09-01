@@ -1,3 +1,4 @@
+import math
 from collections import OrderedDict
 
 import torch
@@ -47,6 +48,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         embedding_dim=128,
         dropout=0.5,
         temperature=1.0,
+        reliability_mode="energy",
         use_atlas_prior=False,
         use_sample_gate=False,
         sample_gate_scale=1.0,
@@ -96,6 +98,10 @@ class SMAFEdgeEnergyNet(nn.Module):
         super().__init__()
         if temperature <= 0:
             raise ValueError("temperature must be greater than zero")
+        if reliability_mode not in {"energy", "centered_energy"}:
+            raise ValueError(
+                "reliability_mode must be either energy or centered_energy"
+            )
         if sample_gate_scale < 0:
             raise ValueError("sample_gate_scale must be non-negative")
         if residual_classifier_scale < 0:
@@ -141,6 +147,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.atlas_names = list(self.atlas_specs.keys())
         self.num_atlases = len(self.atlas_names)
         self.temperature = temperature
+        self.reliability_mode = reliability_mode
         self.use_atlas_prior = use_atlas_prior
         self.use_sample_gate = use_sample_gate
         self.sample_gate_scale = sample_gate_scale
@@ -466,6 +473,30 @@ class SMAFEdgeEnergyNet(nn.Module):
             dim=-1,
         )
 
+    @staticmethod
+    def center_logits(logits):
+        return logits - logits.mean(dim=-1, keepdim=True)
+
+    def compute_reliability_score(self, logits):
+        if self.reliability_mode == "centered_energy":
+            logits = self.center_logits(logits)
+        return -self.compute_energy(logits)
+
+    def compute_reliability_diagnostics(self, logits):
+        centered_logits = self.center_logits(logits)
+        probabilities = torch.softmax(logits, dim=-1)
+        entropy = -torch.sum(
+            probabilities * torch.log(probabilities.clamp_min(1e-8)),
+            dim=-1,
+        )
+        return {
+            "branch_logit_mean": logits.mean(dim=-1),
+            "branch_logit_margin": torch.abs(logits[..., 1] - logits[..., 0]),
+            "raw_energy_score": -self.compute_energy(logits),
+            "centered_energy_score": -self.compute_energy(centered_logits),
+            "entropy_confidence": (1.0 - entropy / math.log(2.0)).clamp(0.0, 1.0),
+        }
+
     def transform_raw_fc(self, fc):
         """Apply a sign-preserving Fisher r-to-z transform when configured."""
         if not self.use_fisher_z:
@@ -571,8 +602,9 @@ class SMAFEdgeEnergyNet(nn.Module):
             branch_logits.append(self.classifiers[atlas_name](classifier_input))
 
         stacked_logits = torch.stack(branch_logits, dim=1)
-        energy = self.compute_energy(stacked_logits)
-        energy_score = -energy
+        reliability_score = self.compute_reliability_score(stacked_logits)
+        energy_score = reliability_score
+        energy = -reliability_score
         if self.atlas_prior is not None:
             energy_score = energy_score + self.atlas_prior.unsqueeze(0)
         consensus_disagreement = None
@@ -698,6 +730,8 @@ class SMAFEdgeEnergyNet(nn.Module):
             "site_logits": site_logits,
             "branch_logits": stacked_logits,
             "energy": energy,
+            "reliability_score": reliability_score,
+            "reliability_mode": self.reliability_mode,
             "atlas_weight": atlas_weight,
             "base_atlas_weight": base_atlas_weight,
             "gated_atlas_weight": gated_atlas_weight,

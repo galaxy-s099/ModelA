@@ -64,6 +64,7 @@ def build_model(config):
             embedding_dim=model_config["embedding_dim"],
             dropout=model_config["dropout"],
             temperature=model_config["temperature"],
+            reliability_mode=model_config.get("reliability_mode", "energy"),
             use_atlas_prior=model_config.get("use_atlas_prior", False),
             use_sample_gate=model_config.get("use_sample_gate", False),
             sample_gate_scale=model_config.get("sample_gate_scale", 1.0),
@@ -460,6 +461,18 @@ def evaluate_model(
         atlas_name: []
         for atlas_name in getattr(model, "atlas_names", [])
     }
+    diagnostic_outputs = {
+        key: []
+        for key in [
+            "branch_logits",
+            "branch_logit_mean",
+            "branch_logit_margin",
+            "raw_energy_score",
+            "centered_energy_score",
+            "entropy_confidence",
+            "reliability_score",
+        ]
+    }
 
     with torch.no_grad():
         for batch in dataloader:
@@ -494,6 +507,25 @@ def evaluate_model(
                     branch_probabilities[atlas_name].extend(
                         branch_batch_probabilities[:, atlas_index].cpu().numpy()
                     )
+                if return_details:
+                    diagnostic_outputs["branch_logits"].append(
+                        branch_logits.cpu().numpy()
+                    )
+                    if hasattr(model, "compute_reliability_diagnostics"):
+                        reliability_diagnostics = (
+                            model.compute_reliability_diagnostics(branch_logits)
+                        )
+                        for output_key, diagnostic_output in (
+                            reliability_diagnostics.items()
+                        ):
+                            diagnostic_outputs[output_key].append(
+                                diagnostic_output.cpu().numpy()
+                            )
+                    reliability_output = output.get("reliability_score")
+                    if reliability_output is not None:
+                        diagnostic_outputs["reliability_score"].append(
+                            reliability_output.cpu().numpy()
+                        )
 
             for output_key, metric_prefix in [
                 ("atlas_weight", "Weight"),
@@ -581,7 +613,11 @@ def evaluate_model(
             sample_gate_logits,
             axis=0,
         )
+    for output_key, output_batches in diagnostic_outputs.items():
+        if output_batches:
+            details[output_key] = np.concatenate(output_batches, axis=0)
     details["atlas_names"] = list(model.atlas_names)
+    details["reliability_mode"] = getattr(model, "reliability_mode", "unknown")
     return metrics, probabilities, labels, details
 
 
@@ -643,6 +679,8 @@ def aggregate_checkpoint_diagnostics(
             raise ValueError("Checkpoint diagnostics have different labels")
         if details["atlas_names"] != reference["atlas_names"]:
             raise ValueError("Checkpoint diagnostics have different atlas order")
+        if details.get("reliability_mode") != reference.get("reliability_mode"):
+            raise ValueError("Checkpoint diagnostics have different reliability modes")
 
     aggregated = {
         "sample_index": sample_indices.copy(),
@@ -665,6 +703,13 @@ def aggregate_checkpoint_diagnostics(
         "base_atlas_weight",
         "gated_atlas_weight",
         "sample_gate_logits",
+        "branch_logits",
+        "branch_logit_mean",
+        "branch_logit_margin",
+        "raw_energy_score",
+        "centered_energy_score",
+        "entropy_confidence",
+        "reliability_score",
     ]
     for key in aggregate_keys:
         if not all(key in details for details in checkpoint_details):
@@ -677,6 +722,11 @@ def aggregate_checkpoint_diagnostics(
         while value_weights.ndim < stacked_values.ndim:
             value_weights = value_weights[..., np.newaxis]
         aggregated[key] = np.sum(value_weights * stacked_values, axis=0)
+
+    aggregated["reliability_mode"] = reference.get(
+        "reliability_mode",
+        "unknown",
+    )
 
     return aggregated
 
@@ -696,6 +746,7 @@ def sample_diagnostics_to_rows(details):
             "decision_threshold": float(
                 details["decision_threshold"][sample_offset]
             ),
+            "reliability_mode": details.get("reliability_mode", "unknown"),
         }
         scalar_keys = {
             "weighted_probability": "weighted_probability",
@@ -712,6 +763,12 @@ def sample_diagnostics_to_rows(details):
             "base_atlas_weight": "base_weight",
             "gated_atlas_weight": "gated_weight",
             "sample_gate_logits": "gate_logit",
+            "branch_logit_mean": "branch_logit_mean",
+            "branch_logit_margin": "branch_logit_margin",
+            "raw_energy_score": "raw_energy_score",
+            "centered_energy_score": "centered_energy_score",
+            "entropy_confidence": "entropy_confidence",
+            "reliability_score": "reliability_score",
         }
         for details_key, column_prefix in vector_keys.items():
             if details_key not in details:
@@ -719,6 +776,14 @@ def sample_diagnostics_to_rows(details):
             for atlas_index, atlas_name in enumerate(atlas_names):
                 row[f"{column_prefix}_{atlas_name}"] = float(
                     details[details_key][sample_offset, atlas_index]
+                )
+        if "branch_logits" in details:
+            for atlas_index, atlas_name in enumerate(atlas_names):
+                row[f"branch_logit_class0_{atlas_name}"] = float(
+                    details["branch_logits"][sample_offset, atlas_index, 0]
+                )
+                row[f"branch_logit_class1_{atlas_name}"] = float(
+                    details["branch_logits"][sample_offset, atlas_index, 1]
                 )
         rows.append(row)
     return rows
