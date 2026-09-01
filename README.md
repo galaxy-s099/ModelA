@@ -720,6 +720,7 @@ v16 reliability and loss audit based strictly on v6.6:
 python run_abide.py --config configs/abide_proposal_v16_0.yaml
 python run_abide.py --config configs/abide_proposal_v16_1.yaml
 python run_abide.py --config configs/abide_proposal_v16_2.yaml
+python run_abide.py --config configs/abide_proposal_v16_3.yaml
 ```
 
 The four-cell audit consists of the existing v6.6 result plus three new runs:
@@ -730,6 +731,11 @@ sample gate, and predefined checkpoint probability ensemble remain identical
 to v6.6. Diagnostic CSVs additionally export both branch logits, their common
 mean and absolute margin, raw and centered Energy scores, entropy confidence,
 and the reliability score actually used for fusion.
+
+v16.3 follows the audit with one predefined recovery test. It keeps centered
+Energy and `lambda_reg = 0`, while changing only `lambda_branch` from `0.2` to
+`0.3`. This directly strengthens branch supervision without reintroducing the
+directionally ambiguous relative-loss regularizer.
 
 Short pipeline check on the real dataset:
 
