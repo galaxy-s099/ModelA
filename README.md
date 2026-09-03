@@ -737,6 +737,16 @@ Energy and `lambda_reg = 0`, while changing only `lambda_branch` from `0.2` to
 `0.3`. This directly strengthens branch supervision without reintroducing the
 directionally ambiguous relative-loss regularizer.
 
+v15.4 is the direct equal-weight fusion ablation of v6.6. It preserves the
+three signed-edge branch encoders, branch classifiers, training loss, outer
+5-fold splits, five seeds, and late-checkpoint probability ensemble. The only
+method change is to replace sample-adaptive Energy and gate weights with fixed
+logit weights of `1/3` for AAL, CC200, and HO:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v15_4_equal_weight.yaml
+```
+
 Short pipeline check on the real dataset:
 
 ```bash

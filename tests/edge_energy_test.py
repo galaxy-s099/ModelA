@@ -119,6 +119,29 @@ def main():
     assert torch.isfinite(sample_gate_model.sample_gate[-1].weight.grad).all()
     assert sample_gate_model.sample_gate[-1].weight.grad.abs().sum() > 0
 
+    uniform_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.0,
+        temperature=1.0,
+        use_uniform_atlas_weights=True,
+    )
+    uniform_model.load_state_dict(model.state_dict(), strict=False)
+    uniform_model.eval()
+    with torch.no_grad():
+        uniform_output = uniform_model(batch)
+    expected_uniform_weight = torch.full((4, 3), 1.0 / 3.0)
+    assert torch.allclose(
+        uniform_output["atlas_weight"],
+        expected_uniform_weight,
+    )
+    assert torch.allclose(
+        uniform_output["fusion_logits"],
+        uniform_output["branch_logits"].mean(dim=1),
+        atol=1e-6,
+    )
+
     residual_model = SMAFEdgeEnergyNet(
         atlas_specs=atlas_specs,
         hidden_dim=16,

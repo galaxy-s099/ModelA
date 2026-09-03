@@ -68,6 +68,10 @@ def build_model(config):
             use_atlas_prior=model_config.get("use_atlas_prior", False),
             use_sample_gate=model_config.get("use_sample_gate", False),
             sample_gate_scale=model_config.get("sample_gate_scale", 1.0),
+            use_uniform_atlas_weights=model_config.get(
+                "use_uniform_atlas_weights",
+                False,
+            ),
             use_residual_classifier=model_config.get(
                 "use_residual_classifier",
                 False,
