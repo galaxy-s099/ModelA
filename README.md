@@ -747,6 +747,14 @@ logit weights of `1/3` for AAL, CC200, and HO:
 python run_abide.py --config configs/abide_proposal_v15_4_equal_weight.yaml
 ```
 
+v15.5 isolates the Energy component of v6.6. It keeps the original raw Energy
+score and all v6.6 training settings, but removes the learned sample-gate
+correction. Atlas weights are therefore computed as `softmax(Energy evidence)`:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v15_5_energy_only.yaml
+```
+
 Short pipeline check on the real dataset:
 
 ```bash
