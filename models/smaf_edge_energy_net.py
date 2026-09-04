@@ -52,6 +52,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         use_atlas_prior=False,
         use_sample_gate=False,
         sample_gate_scale=1.0,
+        use_energy_evidence=True,
         use_uniform_atlas_weights=False,
         use_residual_classifier=False,
         residual_classifier_scale=0.5,
@@ -152,6 +153,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.use_atlas_prior = use_atlas_prior
         self.use_sample_gate = use_sample_gate
         self.sample_gate_scale = sample_gate_scale
+        self.use_energy_evidence = bool(use_energy_evidence)
         self.use_uniform_atlas_weights = bool(use_uniform_atlas_weights)
         self.use_residual_classifier = use_residual_classifier
         self.residual_classifier_scale = residual_classifier_scale
@@ -605,7 +607,11 @@ class SMAFEdgeEnergyNet(nn.Module):
 
         stacked_logits = torch.stack(branch_logits, dim=1)
         reliability_score = self.compute_reliability_score(stacked_logits)
-        energy_score = reliability_score
+        energy_score = (
+            reliability_score
+            if self.use_energy_evidence
+            else torch.zeros_like(reliability_score)
+        )
         energy = -reliability_score
         if self.atlas_prior is not None:
             energy_score = energy_score + self.atlas_prior.unsqueeze(0)

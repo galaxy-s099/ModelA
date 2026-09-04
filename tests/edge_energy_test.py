@@ -142,6 +142,47 @@ def main():
         atol=1e-6,
     )
 
+    gate_only_model = SMAFEdgeEnergyNet(
+        atlas_specs=atlas_specs,
+        hidden_dim=16,
+        embedding_dim=12,
+        dropout=0.0,
+        temperature=1.0,
+        use_sample_gate=True,
+        use_energy_evidence=False,
+    )
+    gate_only_model.load_state_dict(sample_gate_model.state_dict(), strict=False)
+    with torch.no_grad():
+        gate_only_model.sample_gate[-1].weight.zero_()
+        gate_only_model.sample_gate[-1].bias.copy_(
+            torch.tensor([1.0, 0.0, -1.0])
+        )
+    gate_only_model.eval()
+    with torch.no_grad():
+        gate_only_output = gate_only_model(batch)
+    expected_gate_weight = torch.softmax(
+        gate_only_output["sample_gate_logits"],
+        dim=1,
+    )
+    assert torch.allclose(
+        gate_only_output["base_atlas_weight"],
+        expected_uniform_weight,
+        atol=1e-6,
+    )
+    assert torch.allclose(
+        gate_only_output["atlas_weight"],
+        expected_gate_weight,
+        atol=1e-6,
+    )
+    assert torch.allclose(
+        gate_only_output["fusion_logits"],
+        (
+            expected_gate_weight.unsqueeze(-1)
+            * gate_only_output["branch_logits"]
+        ).sum(dim=1),
+        atol=1e-6,
+    )
+
     residual_model = SMAFEdgeEnergyNet(
         atlas_specs=atlas_specs,
         hidden_dim=16,

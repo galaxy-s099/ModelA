@@ -755,6 +755,15 @@ correction. Atlas weights are therefore computed as `softmax(Energy evidence)`:
 python run_abide.py --config configs/abide_proposal_v15_5_energy_only.yaml
 ```
 
+v15.6 completes the fusion factorial ablation by retaining the learned sample
+gate while removing Energy evidence from the weight logits. Its atlas weights
+are computed as `softmax(sample gate logits)` under the unchanged v6.6
+training and checkpoint-ensemble protocol:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v15_6_gate_only.yaml
+```
+
 Short pipeline check on the real dataset:
 
 ```bash
