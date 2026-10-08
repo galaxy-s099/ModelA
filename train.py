@@ -144,6 +144,10 @@ def build_model(config):
                 "use_signed_edge_separation",
                 True,
             ),
+            use_raw_edge_zero_padding=model_config.get(
+                "use_raw_edge_zero_padding",
+                False,
+            ),
             use_roi_profile_attention=model_config.get(
                 "use_roi_profile_attention",
                 False,

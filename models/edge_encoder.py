@@ -186,6 +186,7 @@ class EdgeBranchEncoder(nn.Module):
         edge_projection_rank=None,
         use_dual_stream_signed_mlp=False,
         use_signed_edge_separation=True,
+        use_raw_edge_zero_padding=False,
     ):
         super().__init__()
         if use_node_summary and num_nodes is None:
@@ -212,6 +213,10 @@ class EdgeBranchEncoder(nn.Module):
             raise ValueError(
                 "dual-stream signed MLP requires signed edge separation"
             )
+        if use_raw_edge_zero_padding and use_signed_edge_separation:
+            raise ValueError("raw edge zero padding requires signed separation off")
+        if use_raw_edge_zero_padding and input_dim % 2 != 0:
+            raise ValueError("raw edge zero padding requires an even input_dim")
 
         self.use_node_summary = use_node_summary
         self.use_edge_residual = use_edge_residual
@@ -221,6 +226,7 @@ class EdgeBranchEncoder(nn.Module):
         self.edge_projection_rank = edge_projection_rank
         self.use_dual_stream_signed_mlp = bool(use_dual_stream_signed_mlp)
         self.use_signed_edge_separation = bool(use_signed_edge_separation)
+        self.use_raw_edge_zero_padding = bool(use_raw_edge_zero_padding)
         if self.use_dual_stream_signed_mlp:
             stream_input_dim = input_dim // 2
 
@@ -307,6 +313,11 @@ class EdgeBranchEncoder(nn.Module):
             if self.use_signed_edge_separation
             else fc_to_edge_vector(fc)
         )
+        if self.use_raw_edge_zero_padding:
+            # Match the signed encoder's input shape without splitting by sign.
+            edge_vector = torch.cat(
+                [edge_vector, torch.zeros_like(edge_vector)], dim=-1
+            )
         if self.edge_dropout > 0:
             edge_vector = F.dropout(
                 edge_vector,

@@ -96,10 +96,13 @@ class SMAFEdgeEnergyNet(nn.Module):
         use_tangent_branch=False,
         use_fisher_z=False,
         fisher_z_clip=0.999999,
+        use_raw_edge_zero_padding=False,
     ):
         super().__init__()
         if temperature <= 0:
             raise ValueError("temperature must be greater than zero")
+        if use_raw_edge_zero_padding and use_signed_edge_separation:
+            raise ValueError("raw edge zero padding requires signed separation off")
         if reliability_mode not in {"energy", "centered_energy"}:
             raise ValueError(
                 "reliability_mode must be either energy or centered_energy"
@@ -178,6 +181,7 @@ class SMAFEdgeEnergyNet(nn.Module):
         self.edge_projection_rank = edge_projection_rank
         self.use_dual_stream_signed_mlp = bool(use_dual_stream_signed_mlp)
         self.use_signed_edge_separation = bool(use_signed_edge_separation)
+        self.use_raw_edge_zero_padding = bool(use_raw_edge_zero_padding)
         self.use_roi_profile_attention = bool(use_roi_profile_attention)
         self.roi_profile_dim = int(roi_profile_dim)
         self.roi_profile_num_heads = int(roi_profile_num_heads)
@@ -306,7 +310,10 @@ class SMAFEdgeEnergyNet(nn.Module):
             )
             num_nodes = int(spec["num_nodes"])
             edge_count = num_nodes * (num_nodes - 1) // 2
-            input_dim = edge_count * (2 if self.use_signed_edge_separation else 1)
+            doubled_input = (
+                self.use_signed_edge_separation or self.use_raw_edge_zero_padding
+            )
+            input_dim = edge_count * (2 if doubled_input else 1)
             self.encoders[atlas_name] = EdgeBranchEncoder(
                 input_dim=input_dim,
                 hidden_dim=atlas_hidden_dim,
@@ -324,6 +331,7 @@ class SMAFEdgeEnergyNet(nn.Module):
                 edge_projection_rank=atlas_edge_projection_rank,
                 use_dual_stream_signed_mlp=atlas_use_dual_stream_signed_mlp,
                 use_signed_edge_separation=self.use_signed_edge_separation,
+                use_raw_edge_zero_padding=self.use_raw_edge_zero_padding,
             )
             if atlas_use_roi_profile_attention:
                 self.roi_profile_encoders[atlas_name] = ROIProfileAttentionEncoder(
@@ -354,6 +362,7 @@ class SMAFEdgeEnergyNet(nn.Module):
                     edge_projection_rank=atlas_edge_projection_rank,
                     use_dual_stream_signed_mlp=atlas_use_dual_stream_signed_mlp,
                     use_signed_edge_separation=self.use_signed_edge_separation,
+                    use_raw_edge_zero_padding=self.use_raw_edge_zero_padding,
                 )
                 adapter = nn.Linear(atlas_embedding_dim * 2, atlas_embedding_dim)
                 # Start exactly as the v6.6 raw-FC branch. The tangent pathway

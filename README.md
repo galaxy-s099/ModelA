@@ -764,6 +764,35 @@ training and checkpoint-ensemble protocol:
 python run_abide.py --config configs/abide_proposal_v15_6_gate_only.yaml
 ```
 
+v17.0 is a nominal-parameter-matched signed-encoding control of v6.6:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v17_0_raw_padded.yaml
+```
+
+It replaces `[max(e, 0); max(-e, 0)]` with `[e; zeros_like(e)]`, retaining raw
+positive and negative edge values without explicit sign separation. The first
+layer input dimensions (13,340 / 39,800 / 12,210), all parameter tensor shapes,
+MLP widths, fusion, loss, and initialization procedure are unchanged. Both
+models have 16,931,465 parameters with the three configured atlases. Training
+uses the same five seeds, five stratified folds, Adam settings, 80 epochs, and
+mean probabilities from epochs 55/60/65/70/75/80 with threshold 0.5. No test-best
+or validation-selected checkpoints are used. Sample/checkpoint diagnostics are
+exported for paired comparisons with v6.6 and the smaller raw-input v15.0.
+
+This controls the nominal parameter count, not effective capacity: weights on
+the zero-padded half receive no data-loss gradient (weight decay can still
+update them). A performance difference alone cannot completely rule out an
+effective-capacity explanation. Call it a "zero-padded, nominal-parameter-matched
+raw-FC control", not an equal-effective-capacity baseline.
+
+Quick data-path check (not a reported experiment):
+
+```bash
+python run_abide.py --config configs/abide_proposal_v17_0_raw_padded_debug.yaml
+python tests/raw_padded_control_test.py
+```
+
 Short pipeline check on the real dataset:
 
 ```bash
