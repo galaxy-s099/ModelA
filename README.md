@@ -793,6 +793,48 @@ python run_abide.py --config configs/abide_proposal_v17_0_raw_padded_debug.yaml
 python tests/raw_padded_control_test.py
 ```
 
+v17.1 replaces zero padding with a parameter-budget-matched wider raw-FC MLP:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v17_1_raw_wide.yaml
+```
+
+The existing per-atlas width overrides are used; no shared model or training
+code changes are required. Inputs are the raw signed upper-triangle values
+`e`, without sign separation, duplication, or zero padding. For an encoder
+with 128 output features, two affine BatchNorm layers, and biases, the parameter
+count is `h * (input_dim + 131) + 384`. Each raw-FC hidden width is fixed by
+`round(256 * (2 * E + 131) / (E + 131))`, where `E = N * (N - 1) / 2`.
+Widths are calculated only from tensor dimensions, not labels or test results.
+
+| Atlas | Raw input dimensions | v6.6 hidden width | v17.1 hidden width |
+| --- | ---: | ---: | ---: |
+| AAL | 6,670 | 256 | 507 |
+| CC200 | 19,900 | 256 | 510 |
+| HO | 6,105 | 256 | 507 |
+
+The total trainable parameter counts are 16,931,465 for v6.6 and 16,926,826
+for v17.1, a difference of -4,639 (-0.0274%). The 128-D embeddings, classifiers,
+sample gate, raw Energy evidence, loss, Adam settings, five seeds and five folds,
+80 epochs, and uniform mean probabilities from epochs 55/60/65/70/75/80 remain
+unchanged. Sample, checkpoint, and subject CSVs are exported as in v6.6.
+
+No input columns are forced to zero by this encoding, so it removes v17.0's
+padding-induced inactive weights. Naturally zero data features and ReLU or
+Dropout inactivity are still possible. This is an approximately
+parameter-budget-matched control, not proof of identical effective capacity:
+the hidden widths and encoding differ. The same seed procedure is retained,
+but initial parameter tensors cannot be identical because their shapes differ.
+Retain v15.0 (raw, narrow) and v17.0 (raw, padded) as separate controls rather
+than replacing their historical results.
+
+Quick data-path and regression checks:
+
+```bash
+python run_abide.py --config configs/abide_proposal_v17_1_raw_wide_debug.yaml
+python tests/raw_wide_control_test.py
+```
+
 Short pipeline check on the real dataset:
 
 ```bash
